@@ -20,6 +20,7 @@ public struct Chip: Hashable, Sendable, CustomStringConvertible {
 
   public var description: String {
     let name = "M\(family.rawValue)"
+
     switch variant {
     case .base: return name
     case .pro: return name + " Pro"
@@ -35,6 +36,7 @@ public struct Chip: Hashable, Sendable, CustomStringConvertible {
 
 public enum ChipIdentity: Hashable, Sendable, CustomStringConvertible {
   case recognized(Chip)
+
   /// `brandString` is nil when the system did not report one.
   case unrecognized(brandString: String?)
 
@@ -64,9 +66,13 @@ public enum ChipIdentifier {
 
   static func readBrandString() -> String? {
     var size = 0
+
     guard sysctlbyname("machdep.cpu.brand_string", nil, &size, nil, 0) == 0, size > 0 else { return nil }
+
     var buffer = [UInt8](repeating: 0, count: size)
+
     guard sysctlbyname("machdep.cpu.brand_string", &buffer, &size, nil, 0) == 0 else { return nil }
+
     return String(decoding: buffer.prefix { $0 != 0 }, as: UTF8.self)
   }
 }

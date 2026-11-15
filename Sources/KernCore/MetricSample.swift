@@ -23,8 +23,19 @@ public struct MetricValue: Equatable, Sendable {
   }
 }
 
+/// Why a sensor that read its source without error still has no value.
+public enum NoValueReason: Equatable, Sendable {
+  /// The value is a rate between two readings, and there is no earlier reading to compare with yet.
+  case awaitingBaseline
+  /// The source's counters have not advanced since the previous reading.
+  case countersUnchanged
+  /// A counter is lower than at the previous reading.
+  case countersWentBackwards
+}
+
 public enum UnavailableReason: Equatable, Sendable {
   case notStarted
+  case noValue(NoValueReason)
   case sensorFailed(SensorError)
 }
 

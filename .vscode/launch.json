@@ -1,0 +1,24 @@
+{
+  "configurations": [
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:kern}",
+      "name": "Debug kern-probe",
+      "target": "kern-probe",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug kern-probe"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:kern}",
+      "name": "Release kern-probe",
+      "target": "kern-probe",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release kern-probe"
+    }
+  ]
+}

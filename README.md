@@ -33,9 +33,22 @@ chip: M1 Max
 14:30:56  gpu.ioreport.gpuph  active residency  unavailable (awaiting baseline)
 14:30:58  gpu.ioreport.gpuph  active residency   59.4 %
 14:31:00  gpu.ioreport.gpuph  active residency   51.9 %
+
+$ swift run -c release kern-probe temperature    # one CPU temperature every 10 seconds until Ctrl-C
+chip: M1 Max
+15:05:46  temperature.smc.cpu  temperature   68.8 °C
+15:05:57  temperature.smc.cpu  temperature   64.6 °C
 ```
 
-The first reading of each mode is always unavailable, because both numbers are the change between two readings. The GPU number is active-state residency, not utilization: the share of time the GPU was powered on, which includes time spent drawing the screen, so an idle desktop does not read zero.
+The first CPU and GPU readings are always unavailable, because both numbers are the change between two readings. The GPU number is active-state residency, not utilization: the share of time the GPU was powered on, which includes time spent drawing the screen, so an idle desktop does not read zero.
+
+The temperature is the hottest of the CPU die sensors that have been verified for the chip. On a chip without a verified sensor map, which today means every chip except the M1 Max, it is always unavailable.
+
+To find the temperature sensors of a new chip, list every temperature the SMC reports, one comma-separated row per second, and watch which ones follow a CPU load:
+
+```sh
+swift run -c release kern-probe temperature-sensors > sensors.csv
+```
 
 To see what a running process has cost so far (CPU time and wakeups, the counters Activity Monitor uses):
 

@@ -43,7 +43,7 @@ public final class MetricsStore {
   }
 
   /// Two minutes at the default CPU and GPU interval.
-  static let historyCapacity = 60
+  public nonisolated static let historyCapacity = 60
 
   private var readings: [Metric: MetricReadings]
   private var observers: [ObserverID: @MainActor (Metric) -> Void] = [:]

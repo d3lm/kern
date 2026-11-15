@@ -4,8 +4,9 @@ import Testing
 
 @testable import KernCore
 
-/// Logs `open`, `read <seconds>` with the test clock's time, and `close`. Each entry of `whileReading` runs during one
-/// read, in order, which is how a test makes a sample slow or holds it in flight.
+/// Logs `open`, `read <seconds>` with the test clock's time, and `close`. Each entry of `whileOpening` runs
+/// during one open and each entry of `whileReading` during one read, in order, which is how a test makes a
+/// provider slow to open or holds a sample in flight.
 struct ClockedSensor: MetricSensor {
   let source = SourceID("test.clocked")
   let quantity = MetricQuantity.utilization
@@ -13,10 +14,13 @@ struct ClockedSensor: MetricSensor {
   let clock: TestClock
   var failure: SensorError?
   var failsToOpen = false
+  var whileOpening: [@Sendable () -> Void] = []
   var whileReading: [@Sendable () -> Void] = []
 
   mutating func open() throws(SensorError) {
     log.record("open")
+
+    if !whileOpening.isEmpty { whileOpening.removeFirst()() }
 
     if failsToOpen { throw SensorError("cannot open") }
   }
@@ -94,16 +98,17 @@ struct MetricsCoordinatorTests {
     }
   }
 
-  @Test func samplesCPUAndGPUEveryTwoSecondsAndTemperatureEveryTenEachOnItsOwnSchedule() async {
+  @Test func samplesEachMetricOnItsOwnScheduleAtItsDefaultInterval() async {
     let coordinator = coordinator()
 
     coordinator.start()
 
-    await run(until: 20, schedules: 3)
+    await run(until: 20, schedules: 4)
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.temperature]!.reads == [0, 10, 20])
+    #expect(logs[.memory]!.reads == [0, 5, 10, 15, 20])
   }
 
   @Test func storeHearsOnceForEverySampleTaken() async {
@@ -114,9 +119,9 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 10, schedules: 3)
+    await run(until: 10, schedules: 4)
 
-    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2])
+    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2, .memory: 3])
     #expect(coordinator.store[.cpu]?.latest?.value == MetricValue(10, .percent))
     #expect(coordinator.store[.cpu]?.history?.count == 6)
   }
@@ -126,7 +131,7 @@ struct MetricsCoordinatorTests {
 
     let coordinator = coordinator { metric, sensor in
       switch metric {
-      case .cpu: break
+      case .cpu, .memory: break
       case .gpu: sensor.failure = readFailure
       case .temperature: sensor.failsToOpen = true
       }
@@ -134,7 +139,7 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 20, schedules: 3)
+    await run(until: 20, schedules: 4)
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
@@ -179,6 +184,32 @@ struct MetricsCoordinatorTests {
     #expect(logs[.cpu]!.reads == [0, 8, 10, 12])
   }
 
+  /// The menu bar redraws once for samples that arrive together, so metrics with the same interval must not
+  /// drift apart by however long each provider took to open.
+  @Test func metricsStartedTogetherKeepTheSameTicksWhenOneProviderOpensSlowly() async {
+    let cpuRead = DispatchSemaphore(value: 0)
+
+    let coordinator = coordinator([.cpu, .gpu]) { metric, sensor in
+      switch metric {
+      case .cpu: sensor.whileReading = [{ cpuRead.signal() }]
+      default:
+        sensor.whileOpening = [
+          { [clock] in
+            cpuRead.wait()
+            clock.advance(by: .seconds(1))
+          }
+        ]
+      }
+    }
+
+    coordinator.start()
+
+    await run(until: 10, schedules: 2)
+
+    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 8, 10])
+    #expect(logs[.gpu]!.reads == [1, 2, 4, 6, 8, 10])
+  }
+
   @Test func changesDuringASampleNeverQueueASecondSample() async {
     let gate = DispatchSemaphore(value: 0)
 
@@ -210,19 +241,19 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 4, schedules: 3)
+    await run(until: 4, schedules: 4)
 
     coordinator.disable(.gpu)
 
     await waitUntil { !logs[.gpu]!.isOpen }
-    await run(until: 10, schedules: 2)
+    await run(until: 10, schedules: 3)
 
     #expect(logs[.gpu]!.reads == [0, 2, 4])
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 10, by: 2)))
 
     coordinator.enable(.gpu)
 
-    await run(until: 12, schedules: 3)
+    await run(until: 12, schedules: 4)
 
     #expect(logs[.gpu]!.reads == [0, 2, 4, 10, 12])
     #expect(logs[.gpu]!.all.filter { !$0.hasPrefix("read") } == ["open", "close", "open"])
@@ -253,7 +284,7 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 4, schedules: 3)
+    await run(until: 4, schedules: 4)
 
     coordinator.stop()
 
@@ -262,7 +293,7 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 16, schedules: 3)
+    await run(until: 16, schedules: 4)
 
     #expect(logs[.cpu]!.reads == [0, 2, 4, 14, 16])
     #expect(logs[.temperature]!.reads == [0, 14])

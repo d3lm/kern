@@ -51,16 +51,18 @@ struct MetricsStoreTests {
   let start = ContinuousClock.now
 
   func store(cpuInterval: Duration = .seconds(2)) -> MetricsStore {
-    MetricsStore(intervals: [.cpu: cpuInterval, .gpu: .seconds(2), .temperature: .seconds(10)])
+    MetricsStore(intervals: [.cpu: cpuInterval, .gpu: .seconds(2), .temperature: .seconds(10), .memory: .seconds(5)])
   }
 
-  @Test func cpuAndGPUKeepSixtySamplesOfHistoryAndTemperatureNone() {
+  @Test func cpuAndGPUKeepSixtySamplesOfHistoryAndTemperatureAndMemoryNone() {
     let store = store()
 
     #expect(store[.cpu]?.history?.capacity == 60)
     #expect(store[.gpu]?.history?.capacity == 60)
     #expect(store[.temperature] != nil)
     #expect(store[.temperature]?.history == nil)
+    #expect(store[.memory] != nil)
+    #expect(store[.memory]?.history == nil)
   }
 
   @Test func unavailableSampleEntersTheHistoryAsAGapNotAsZero() {

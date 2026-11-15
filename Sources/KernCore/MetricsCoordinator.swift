@@ -141,30 +141,35 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
   }
 
   /// Sampling with the metric's current interval, captured now so that it runs as configured at the time of the
-  /// change even though it starts later.
+  /// change even though it starts later. Its ticks count from now too, not from when it starts, so that metrics
+  /// changed together keep the same ticks however long each provider takes to open, and the menu bar redraws once
+  /// for their samples instead of once for each.
   private func collecting(_ metric: Metric) -> @Sendable (_ lastTick: C.Instant?) async -> C.Instant? {
     let collector = collector(metric)
+    let requested = clock.now
 
     return { [provider = collector.provider, interval = collector.interval, store = store, clock = clock] lastTick in
-      await Self.collect(metric, from: provider, every: interval, after: lastTick, into: store, clock: clock)
+      await Self.collect(
+        metric, from: provider, every: interval, after: lastTick, requested: requested, into: store, clock: clock)
     }
   }
 
   /// Samples `provider` every `interval` until the task is cancelled, and returns the tick of the last sample.
   ///
-  /// The first sample is due one interval after `lastTick`, or at once if that has passed. A sample that ends late
-  /// drops the ticks it missed instead of catching up, so samples never pile up behind a slow sensor.
+  /// The first tick is one interval after `lastTick`, or the moment the change was `requested` if that is later.
+  /// A sample that starts or ends late drops the ticks it missed instead of catching up, so samples never pile up
+  /// behind a slow sensor.
   private nonisolated static func collect(
     _ metric: Metric,
     from provider: MetricProvider,
     every interval: Duration,
     after lastTick: C.Instant?,
+    requested: C.Instant,
     into store: MetricsStore,
     clock: C
   ) async -> C.Instant? {
-    let start = clock.now
     var lastTick = lastTick
-    var tick = lastTick.map { max($0.advanced(by: interval), start) } ?? start
+    var tick = lastTick.map { max($0.advanced(by: interval), requested) } ?? requested
 
     while true {
       do {

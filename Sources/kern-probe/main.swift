@@ -2,12 +2,13 @@ import Foundation
 import KernCore
 
 let usage = """
-  usage: kern-probe [cpu | gpu | temperature | temperature-sensors | metrics]
+  usage: kern-probe [cpu | gpu | temperature | memory | temperature-sensors | metrics]
 
     (no mode)            print the chip identity
     cpu                  print the chip identity, then one CPU reading every 2 seconds until interrupted
     gpu                  print the chip identity, then one GPU reading every 2 seconds until interrupted
     temperature          print the chip identity, then one CPU temperature every 10 seconds until interrupted
+    memory               print the chip identity, then the share of memory in use every 5 seconds until interrupted
     temperature-sensors  print the chip identity, then every SMC temperature as comma-separated columns,
                          one row every second until interrupted; for validating sensor maps only
     metrics              print the chip identity, then run every metric through the coordinator and print a
@@ -16,12 +17,12 @@ let usage = """
                            enable <metric>
                            disable <metric>
                            interval <metric> <seconds>
-                         where <metric> is cpu, gpu, or temperature
+                         where <metric> is cpu, gpu, temperature, or memory
   """
 
 let mode = CommandLine.arguments.dropFirst().first
 
-if let mode, !["cpu", "gpu", "temperature", "temperature-sensors", "metrics"].contains(mode) {
+if let mode, !["cpu", "gpu", "temperature", "memory", "temperature-sensors", "metrics"].contains(mode) {
   print(usage)
   exit(EX_USAGE)
 }
@@ -47,6 +48,7 @@ switch mode {
 case "cpu": await printReadings(of: CPUSensor(), every: .seconds(2))
 case "gpu": await printReadings(of: GPUSensor(), every: .seconds(2))
 case "temperature": await printReadings(of: TemperatureSensor(chip: ChipIdentifier.current), every: .seconds(10))
+case "memory": await printReadings(of: MemorySensor(), every: .seconds(5))
 case "temperature-sensors": await printTemperatureSensors(every: .seconds(1))
 case "metrics": await printMetrics()
 default: break
@@ -94,6 +96,7 @@ func printMetrics() async {
     .cpu: MetricProvider(sensor: CPUSensor()),
     .gpu: MetricProvider(sensor: GPUSensor()),
     .temperature: MetricProvider(sensor: TemperatureSensor(chip: ChipIdentifier.current)),
+    .memory: MetricProvider(sensor: MemorySensor()),
   ])
 
   let store = coordinator.store
@@ -174,6 +177,7 @@ func describe(_ quantity: MetricQuantity) -> String {
   case .utilization: "utilization"
   case .activeResidency: "active residency"
   case .temperature: "temperature"
+  case .memoryUsage: "memory in use"
   }
 }
 

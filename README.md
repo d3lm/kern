@@ -16,6 +16,24 @@ swift test                             # run the tests
 swift run kern-probe                   # show what Kern reads on this Mac
 ```
 
+To build and start the app, a menu-bar item with no Dock icon and no window:
+
+```sh
+xcodebuild -project App/Kern.xcodeproj -scheme Kern -configuration Release -derivedDataPath .build/xcode build
+open .build/xcode/Build/Products/Release/Kern.app
+```
+
+Or open `App/Kern.xcodeproj` in Xcode and run the `Kern` scheme. Quit Kern from its menu.
+
+By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory in use, in that order. To change the order, hide widgets, or hide the `CPU`, `GPU`, and `RAM` labels, set the layout and restart Kern:
+
+```sh
+defaults write dev.kern.Kern menuBarLayout '{ widgets = (gpu, cpu); showsLabels = NO; }'
+defaults delete dev.kern.Kern menuBarLayout    # back to the default
+```
+
+Debug builds accept `--fail <metric>[:<seconds>]` to make a sensor fail and `--chip "<brand string>"` to pretend to run on another chip. [.cursor/docs/menu-bar.md](.cursor/docs/menu-bar.md) describes both, and what each widget shows when a reading is missing or stale.
+
 `kern-probe` is a development tool that prints sensor readings in the terminal. It is not part of the app.
 
 ```sh
@@ -38,6 +56,11 @@ $ swift run -c release kern-probe temperature    # one CPU temperature every 10 
 chip: M1 Max
 15:05:46  temperature.smc.cpu  temperature   68.8 °C
 15:05:57  temperature.smc.cpu  temperature   64.6 °C
+
+$ swift run -c release kern-probe memory    # the share of memory in use every 5 seconds until Ctrl-C
+chip: M1 Max
+21:49:26  memory.host_statistics64  memory in use   86.6 %
+21:49:31  memory.host_statistics64  memory in use   86.7 %
 ```
 
 The first CPU and GPU readings are always unavailable, because both numbers are the change between two readings. The GPU number is active-state residency, not utilization: the share of time the GPU was powered on, which includes time spent drawing the screen, so an idle desktop does not read zero.
@@ -60,7 +83,7 @@ interval cpu 1
 16:04:42  cpu every 1 s
 ```
 
-While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, or `temperature`. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
+While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, or `memory`. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
 
 To find the temperature sensors of a new chip, list every temperature the SMC reports, one comma-separated row per second, and watch which ones follow a CPU load:
 
@@ -80,11 +103,20 @@ To put a steady, full load on the GPU for a given number of seconds (default 60)
 swift Scripts/gpu-load.swift 60
 ```
 
+To fill a given amount of memory (default 4 GiB) with random bytes that cannot be compressed, hold it for a given time (default 30 seconds), and free it:
+
+```sh
+swift Scripts/memory-load.swift 4 30
+```
+
 ## Project layout
 
-| Path                  | Contents                                       |
-| --------------------- | ---------------------------------------------- |
-| `Sources/KernCore`    | Chip detection, sensors, and metric collection |
-| `Sources/kern-probe`  | The development probe                          |
-| `Tests/KernCoreTests` | Unit tests                                     |
-| `Scripts`             | Development measurement scripts                |
+| Path                  | Contents                                                    |
+| --------------------- | ----------------------------------------------------------- |
+| `Sources/KernCore`    | Chip detection, sensors, and metric collection              |
+| `Sources/KernUI`      | The menu bar and the app's startup                          |
+| `Sources/kern-probe`  | The development probe                                       |
+| `App`                 | The Xcode project: the app's entry point and build settings |
+| `Tests/KernCoreTests` | Unit tests of the core                                      |
+| `Tests/KernUITests`   | Unit tests of the menu bar                                  |
+| `Scripts`             | Development measurement scripts                             |

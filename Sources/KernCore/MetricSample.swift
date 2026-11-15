@@ -21,6 +21,8 @@ public enum MetricQuantity: Sendable {
   /// this is never presented as utilization.
   case activeResidency
   case temperature
+  /// The share of installed memory in use by apps and the system, as Activity Monitor counts its Memory Used.
+  case memoryUsage
 }
 
 public struct MetricValue: Equatable, Sendable {

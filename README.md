@@ -25,7 +25,7 @@ open .build/xcode/Build/Products/Release/Kern.app
 
 Or open `App/Kern.xcodeproj` in Xcode and run the `Kern` scheme. Quit Kern from its menu.
 
-By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory in use, in that order. To change the order, hide widgets, or hide the `CPU`, `GPU`, and `RAM` labels, set the layout and restart Kern:
+By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory pressure, in that order. To change the order, hide widgets, or hide the `CPU`, `GPU`, and `RAM` labels, set the layout and restart Kern:
 
 ```sh
 defaults write dev.kern.Kern menuBarLayout '{ widgets = (gpu, cpu); showsLabels = NO; }'
@@ -61,13 +61,20 @@ $ swift run -c release kern-probe memory    # the share of memory in use every 5
 chip: M1 Max
 21:49:26  memory.host_statistics64  memory in use   86.6 %
 21:49:31  memory.host_statistics64  memory in use   86.7 %
+
+$ swift run -c release kern-probe memory-pressure    # the memory pressure every 5 seconds until Ctrl-C
+chip: M1 Max
+21:59:22  memory.memorystatus_level  memory pressure   70.0 %
+21:59:27  memory.memorystatus_level  memory pressure   66.0 %
 ```
+
+Memory pressure is the share of memory that macOS cannot give to an app without first reclaiming it; the menu bar's RAM gauge shows it. Once memory is full, used memory stays near the top while pressure keeps moving with how hard macOS is working.
 
 The first CPU and GPU readings are always unavailable, because both numbers are the change between two readings. The GPU number is active-state residency, not utilization: the share of time the GPU was powered on, which includes time spent drawing the screen, so an idle desktop does not read zero.
 
 The temperature is the hottest of the CPU die sensors that have been verified for the chip. On a chip without a verified sensor map, which today means every chip except the M1 Max, it is always unavailable.
 
-To run all three metrics the way the app does, each on its own schedule, and print what the app would read for a metric each time it is sampled:
+To run all the metrics the way the app does, each on its own schedule, and print what the app would read for a metric each time it is sampled:
 
 ```sh
 $ swift run -c release kern-probe metrics    # until Ctrl-C or Ctrl-D
@@ -83,7 +90,7 @@ interval cpu 1
 16:04:42  cpu every 1 s
 ```
 
-While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, or `memory`. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
+While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, or `memory-pressure`. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
 
 To find the temperature sensors of a new chip, list every temperature the SMC reports, one comma-separated row per second, and watch which ones follow a CPU load:
 

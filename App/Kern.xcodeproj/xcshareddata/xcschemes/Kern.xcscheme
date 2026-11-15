@@ -60,6 +60,10 @@
             isEnabled = "NO">
          </CommandLineArgument>
          <CommandLineArgument
+            argument = "--fail memory-pressure"
+            isEnabled = "NO">
+         </CommandLineArgument>
+         <CommandLineArgument
             argument = "--chip &quot;Apple M3 Pro&quot;"
             isEnabled = "NO">
          </CommandLineArgument>

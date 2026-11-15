@@ -41,12 +41,12 @@ struct WidgetContentTests {
     }
   }
 
-  @Test func memoryIsALevelInWholePercentOrNoneWithoutAValue() {
-    let used = readings(.memory, interval: .seconds(5), after: [sample(value(62.4))])
-    let unavailable = readings(.memory, interval: .seconds(5), after: [sample(failed)])
+  @Test func memoryPressureIsALevelInWholePercentOrNoneWithoutAValue() {
+    let pressure = readings(.memoryPressure, interval: .seconds(5), after: [sample(value(62.4))])
+    let unavailable = readings(.memoryPressure, interval: .seconds(5), after: [sample(failed)])
 
-    #expect(Widget.memory.content(for: used, at: start) == .level(62, isStale: false))
-    #expect(Widget.memory.content(for: used, at: start + .seconds(11)) == .level(62, isStale: true))
+    #expect(Widget.memory.content(for: pressure, at: start) == .level(62, isStale: false))
+    #expect(Widget.memory.content(for: pressure, at: start + .seconds(11)) == .level(62, isStale: true))
     #expect(Widget.memory.content(for: unavailable, at: start) == .level(nil, isStale: false))
   }
 

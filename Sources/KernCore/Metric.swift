@@ -4,12 +4,12 @@ public enum Metric: String, CaseIterable, Sendable {
   case cpu
   case gpu
   case temperature
-  case memory
+  case memoryPressure = "memory-pressure"
 
   public var defaultInterval: Duration {
     switch self {
     case .cpu, .gpu: .seconds(2)
-    case .memory: .seconds(5)
+    case .memoryPressure: .seconds(5)
     case .temperature: .seconds(10)
     }
   }
@@ -17,7 +17,7 @@ public enum Metric: String, CaseIterable, Sendable {
   var keepsHistory: Bool {
     switch self {
     case .cpu, .gpu: true
-    case .temperature, .memory: false
+    case .temperature, .memoryPressure: false
     }
   }
 }

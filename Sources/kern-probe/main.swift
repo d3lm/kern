@@ -2,27 +2,34 @@ import Foundation
 import KernCore
 
 let usage = """
-  usage: kern-probe [cpu | gpu | temperature | memory | temperature-sensors | metrics]
+  Usage: kern-probe [<mode>]
 
-    (no mode)            print the chip identity
-    cpu                  print the chip identity, then one CPU reading every 2 seconds until interrupted
-    gpu                  print the chip identity, then one GPU reading every 2 seconds until interrupted
-    temperature          print the chip identity, then one CPU temperature every 10 seconds until interrupted
-    memory               print the chip identity, then the share of memory in use every 5 seconds until interrupted
-    temperature-sensors  print the chip identity, then every SMC temperature as comma-separated columns,
-                         one row every second until interrupted; for validating sensor maps only
-    metrics              print the chip identity, then run every metric through the coordinator and print a
-                         metric's readings from the store each time it is sampled, until interrupted or until
-                         standard input closes; reads these commands from standard input:
-                           enable <metric>
-                           disable <metric>
-                           interval <metric> <seconds>
-                         where <metric> is cpu, gpu, temperature, or memory
+  Prints the chip identity. With a mode, then prints readings until interrupted.
+
+  Modes:
+    cpu                  CPU reading every 2 s
+    gpu                  GPU reading every 2 s
+    temperature          CPU temperature every 10 s
+    memory               Share of memory in use every 5 s
+    memory-pressure      Memory pressure every 5 s
+    temperature-sensors  Every SMC temperature as comma-separated columns, every 1 s
+                         (for validating sensor maps only)
+    metrics              Every metric through the coordinator, printing a metric's readings
+                         from the store each time it is sampled; also stops when standard
+                         input closes
+
+  Metrics commands, one per line on standard input:
+    enable <metric>
+    disable <metric>
+    interval <metric> <seconds>
+
+    <metric> is cpu, gpu, temperature, or memory-pressure
   """
 
 let mode = CommandLine.arguments.dropFirst().first
+let modes = ["cpu", "gpu", "temperature", "memory", "memory-pressure", "temperature-sensors", "metrics"]
 
-if let mode, !["cpu", "gpu", "temperature", "memory", "temperature-sensors", "metrics"].contains(mode) {
+if let mode, !modes.contains(mode) {
   print(usage)
   exit(EX_USAGE)
 }
@@ -49,6 +56,7 @@ case "cpu": await printReadings(of: CPUSensor(), every: .seconds(2))
 case "gpu": await printReadings(of: GPUSensor(), every: .seconds(2))
 case "temperature": await printReadings(of: TemperatureSensor(chip: ChipIdentifier.current), every: .seconds(10))
 case "memory": await printReadings(of: MemorySensor(), every: .seconds(5))
+case "memory-pressure": await printReadings(of: MemoryPressureSensor(), every: .seconds(5))
 case "temperature-sensors": await printTemperatureSensors(every: .seconds(1))
 case "metrics": await printMetrics()
 default: break
@@ -96,7 +104,7 @@ func printMetrics() async {
     .cpu: MetricProvider(sensor: CPUSensor()),
     .gpu: MetricProvider(sensor: GPUSensor()),
     .temperature: MetricProvider(sensor: TemperatureSensor(chip: ChipIdentifier.current)),
-    .memory: MetricProvider(sensor: MemorySensor()),
+    .memoryPressure: MetricProvider(sensor: MemoryPressureSensor()),
   ])
 
   let store = coordinator.store
@@ -104,7 +112,7 @@ func printMetrics() async {
   _ = store.observe { metric in
     guard let readings = store[metric] else { return }
 
-    let name = metric.rawValue.padding(toLength: 11, withPad: " ", startingAt: 0)
+    let name = metric.rawValue.padding(toLength: 15, withPad: " ", startingAt: 0)
 
     print("\(timestamp())  \(name)  \(describe(readings))")
 
@@ -178,6 +186,7 @@ func describe(_ quantity: MetricQuantity) -> String {
   case .activeResidency: "active residency"
   case .temperature: "temperature"
   case .memoryUsage: "memory in use"
+  case .memoryPressure: "memory pressure"
   }
 }
 

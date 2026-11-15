@@ -108,7 +108,7 @@ struct MetricsCoordinatorTests {
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.temperature]!.reads == [0, 10, 20])
-    #expect(logs[.memory]!.reads == [0, 5, 10, 15, 20])
+    #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
   }
 
   @Test func storeHearsOnceForEverySampleTaken() async {
@@ -121,7 +121,7 @@ struct MetricsCoordinatorTests {
 
     await run(until: 10, schedules: 4)
 
-    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2, .memory: 3])
+    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2, .memoryPressure: 3])
     #expect(coordinator.store[.cpu]?.latest?.value == MetricValue(10, .percent))
     #expect(coordinator.store[.cpu]?.history?.count == 6)
   }
@@ -131,7 +131,7 @@ struct MetricsCoordinatorTests {
 
     let coordinator = coordinator { metric, sensor in
       switch metric {
-      case .cpu, .memory: break
+      case .cpu, .memoryPressure: break
       case .gpu: sensor.failure = readFailure
       case .temperature: sensor.failsToOpen = true
       }

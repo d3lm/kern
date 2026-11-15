@@ -16,7 +16,7 @@ enum Widget: String, CaseIterable, Sendable {
     case .temperature: .temperature
     case .cpu: .cpu
     case .gpu: .gpu
-    case .memory: .memory
+    case .memory: .memoryPressure
     }
   }
 

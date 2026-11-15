@@ -142,7 +142,7 @@ final class MenuBarViewTests {
     view.show(readings(.temperature, after: [sample(value(47, .celsius))]), for: .temperature)
     #expect(redraws(of: view) == [.temperature])
 
-    view.show(readings(.memory, after: [sample(value(62))]), for: .memory)
+    view.show(readings(.memoryPressure, after: [sample(value(62))]), for: .memoryPressure)
     #expect(redraws(of: view) == [.memory])
   }
 

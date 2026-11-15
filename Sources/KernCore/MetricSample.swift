@@ -23,6 +23,8 @@ public enum MetricQuantity: Sendable {
   case temperature
   /// The share of installed memory in use by apps and the system, as Activity Monitor counts its Memory Used.
   case memoryUsage
+  /// The share of memory that macOS cannot give to an app without first reclaiming it.
+  case memoryPressure
 }
 
 public struct MetricValue: Equatable, Sendable {

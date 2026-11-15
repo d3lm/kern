@@ -37,7 +37,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       .cpu: CPUSensor(),
       .gpu: GPUSensor(),
       .temperature: TemperatureSensor(chip: chip),
-      .memory: MemorySensor(),
+      .memoryPressure: MemoryPressureSensor(),
     ]
 
     return Dictionary(

@@ -22,7 +22,7 @@ struct AppearanceTests {
     view.show(readings(.temperature, after: [sample(value(47, .celsius), at: acquiredAt)]), for: .temperature)
     view.show(readings(.cpu, after: cpu), for: .cpu)
     view.show(readings(.gpu, after: gpu ?? [sample(value(88), at: acquiredAt)]), for: .gpu)
-    view.show(readings(.memory, after: [sample(value(64), at: acquiredAt)]), for: .memory)
+    view.show(readings(.memoryPressure, after: [sample(value(64), at: acquiredAt)]), for: .memoryPressure)
 
     return view
   }

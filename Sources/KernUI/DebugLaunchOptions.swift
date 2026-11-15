@@ -42,7 +42,7 @@
     }
 
     private static func failure(from value: String?) throws(InvalidArgument) -> (Metric, Failure) {
-      let usage = "--fail needs <metric>[:<seconds>], where <metric> is cpu, gpu, temperature, or memory"
+      let usage = "--fail needs <metric>[:<seconds>], where <metric> is cpu, gpu, temperature, or memory-pressure"
 
       guard let parts = value?.split(separator: ":", omittingEmptySubsequences: false), parts.count <= 2,
         let metric = Metric(rawValue: String(parts[0]))

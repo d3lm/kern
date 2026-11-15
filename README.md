@@ -44,6 +44,24 @@ The first CPU and GPU readings are always unavailable, because both numbers are 
 
 The temperature is the hottest of the CPU die sensors that have been verified for the chip. On a chip without a verified sensor map, which today means every chip except the M1 Max, it is always unavailable.
 
+To run all three metrics the way the app does, each on its own schedule, and print what the app would read for a metric each time it is sampled:
+
+```sh
+$ swift run -c release kern-probe metrics    # until Ctrl-C or Ctrl-D
+chip: M1 Max
+16:04:32  cpu          unavailable (awaiting baseline)  history 1/60, 1 gap
+16:04:32  temperature   69.3 °C
+16:04:32  gpu          unavailable (awaiting baseline)  history 1/60, 1 gap
+16:04:34  cpu           49.8 %  history 2/60, 1 gap
+16:04:34  gpu           38.4 %  history 2/60, 1 gap
+disable gpu
+16:04:37  gpu disabled
+interval cpu 1
+16:04:42  cpu every 1 s
+```
+
+While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, or `temperature`. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
+
 To find the temperature sensors of a new chip, list every temperature the SMC reports, one comma-separated row per second, and watch which ones follow a CPU load:
 
 ```sh

@@ -2,7 +2,7 @@ import Foundation
 import KernCore
 
 let usage = """
-  usage: kern-probe [cpu | gpu | temperature | temperature-sensors]
+  usage: kern-probe [cpu | gpu | temperature | temperature-sensors | metrics]
 
     (no mode)            print the chip identity
     cpu                  print the chip identity, then one CPU reading every 2 seconds until interrupted
@@ -10,11 +10,18 @@ let usage = """
     temperature          print the chip identity, then one CPU temperature every 10 seconds until interrupted
     temperature-sensors  print the chip identity, then every SMC temperature as comma-separated columns,
                          one row every second until interrupted; for validating sensor maps only
+    metrics              print the chip identity, then run every metric through the coordinator and print a
+                         metric's readings from the store each time it is sampled, until interrupted or until
+                         standard input closes; reads these commands from standard input:
+                           enable <metric>
+                           disable <metric>
+                           interval <metric> <seconds>
+                         where <metric> is cpu, gpu, or temperature
   """
 
 let mode = CommandLine.arguments.dropFirst().first
 
-if let mode, !["cpu", "gpu", "temperature", "temperature-sensors"].contains(mode) {
+if let mode, !["cpu", "gpu", "temperature", "temperature-sensors", "metrics"].contains(mode) {
   print(usage)
   exit(EX_USAGE)
 }
@@ -41,6 +48,7 @@ case "cpu": await printReadings(of: CPUSensor(), every: .seconds(2))
 case "gpu": await printReadings(of: GPUSensor(), every: .seconds(2))
 case "temperature": await printReadings(of: TemperatureSensor(chip: ChipIdentifier.current), every: .seconds(10))
 case "temperature-sensors": await printTemperatureSensors(every: .seconds(1))
+case "metrics": await printMetrics()
 default: break
 }
 
@@ -77,6 +85,64 @@ func printTemperatureSensors(every interval: Duration) async {
     } catch {
       print("\(timestamp()),error: \(error)")
     }
+  }
+}
+
+@MainActor
+func printMetrics() async {
+  let coordinator = MetricsCoordinator(providers: [
+    .cpu: MetricProvider(sensor: CPUSensor()),
+    .gpu: MetricProvider(sensor: GPUSensor()),
+    .temperature: MetricProvider(sensor: TemperatureSensor(chip: ChipIdentifier.current)),
+  ])
+
+  let store = coordinator.store
+
+  _ = store.observe { metric in
+    guard let readings = store[metric] else { return }
+
+    let name = metric.rawValue.padding(toLength: 11, withPad: " ", startingAt: 0)
+
+    print("\(timestamp())  \(name)  \(describe(readings))")
+
+    fflush(nil)
+  }
+
+  coordinator.start()
+
+  do {
+    for try await line in FileHandle.standardInput.bytes.lines {
+      print("\(timestamp())  \(apply(line, to: coordinator))")
+
+      fflush(nil)
+    }
+  } catch {
+    print("cannot read standard input: \(error)")
+  }
+}
+
+@MainActor
+func apply(_ command: String, to coordinator: MetricsCoordinator<ContinuousClock>) -> String {
+  let words = command.split(separator: " ")
+
+  guard words.count >= 2, let metric = Metric(rawValue: String(words[1])) else {
+    return "unknown command \"\(command)\""
+  }
+
+  switch (words[0], words.count) {
+  case ("enable", 2):
+    coordinator.enable(metric)
+    return "\(metric.rawValue) enabled"
+  case ("disable", 2):
+    coordinator.disable(metric)
+    return "\(metric.rawValue) disabled"
+  case ("interval", 3):
+    guard let seconds = Double(words[2]), seconds > 0 else { return "the interval must be a positive number" }
+
+    coordinator.setInterval(.seconds(seconds), for: metric)
+    return "\(metric.rawValue) every \(words[2]) s"
+  default:
+    return "unknown command \"\(command)\""
   }
 }
 
@@ -129,4 +195,26 @@ func describe(_ state: SampleState) -> String {
   case .unavailable(.sensorFailed(let error)):
     "unavailable (error: \(error))"
   }
+}
+
+func describe(_ readings: MetricReadings) -> String {
+  var parts: [String] = []
+
+  if let latest = readings.latest {
+    parts.append(describe(latest.state))
+  }
+
+  if readings.latest?.value == nil, let lastSuccessful = readings.lastSuccessful {
+    let freshness = readings.isStale(at: .now) ? "stale" : "current"
+
+    parts.append("last success \(describe(lastSuccessful.state)), \(freshness)")
+  }
+
+  if let history = readings.history {
+    let gaps = history.count { $0.value == nil }
+
+    parts.append("history \(history.count)/\(history.capacity), \(gaps) \(gaps == 1 ? "gap" : "gaps")")
+  }
+
+  return parts.joined(separator: "  ")
 }

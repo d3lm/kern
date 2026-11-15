@@ -20,6 +20,7 @@ protocol CPUTickSource: Sendable {
 /// two reads, 0–100%.
 public struct CPUSensor: MetricSensor {
   public let source = SourceID("cpu.host_processor_info")
+  public let quantity = MetricQuantity.utilization
   private var ticks: any CPUTickSource
   private var previous: [CPUTicks]?
 

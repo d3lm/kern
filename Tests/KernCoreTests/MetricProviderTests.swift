@@ -18,6 +18,7 @@ final class SensorLog: Sendable {
 struct ScriptedSensor: MetricSensor {
   let source = SourceID("test.sensor")
   let log: SensorLog
+  var quantity = MetricQuantity.utilization
   var openResults: [Result<Void, SensorError>] = [.success(())]
   var readResults: [Result<SensorReading, SensorError>] = []
 
@@ -50,6 +51,7 @@ struct ScriptedSensor: MetricSensor {
 
 struct ThreadRecordingSensor: MetricSensor {
   let source = SourceID("test.thread")
+  let quantity = MetricQuantity.utilization
   let log: SensorLog
 
   private func record(_ call: String) {
@@ -101,6 +103,25 @@ struct MetricProviderTests {
     #expect(await provider.lastSuccessfulSample == sample)
     #expect(await provider.availability == .available)
     #expect(await provider.errorState == nil)
+  }
+
+  @Test func everySampleCarriesTheSensorsQuantityEvenWithoutAValue() async {
+    let provider = MetricProvider(
+      sensor: ScriptedSensor(
+        log: log,
+        quantity: .activeResidency,
+        readResults: [.success(.value(MetricValue(30, .percent))), .failure(failure)]
+      ))
+
+    let beforeStart = await provider.sample()
+
+    await provider.start()
+
+    let valid = await provider.sample()
+    let failed = await provider.sample()
+
+    #expect(provider.quantity == .activeResidency)
+    #expect([beforeStart, valid, failed].map(\.quantity) == [.activeResidency, .activeResidency, .activeResidency])
   }
 
   @Test func failedReadIsUnavailableWithoutANumberAndKeepsTheLastSuccess() async {

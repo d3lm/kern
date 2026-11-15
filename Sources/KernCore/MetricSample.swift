@@ -13,6 +13,16 @@ public enum MetricUnit: Sendable {
   case celsius
 }
 
+/// What a number measures. Two percentages can mean different things, and the UI must label each one by what it is.
+public enum MetricQuantity: Sendable {
+  /// The share of time the hardware was busy doing work.
+  case utilization
+  /// The share of time the hardware was powered in an active state. Hardware can be active without doing work, so
+  /// this is never presented as utilization.
+  case activeResidency
+  case temperature
+}
+
 public struct MetricValue: Equatable, Sendable {
   public let value: Double
   public let unit: MetricUnit
@@ -47,12 +57,14 @@ public enum SampleState: Equatable, Sendable {
 
 public struct MetricSample: Equatable, Sendable {
   public let source: SourceID
+  public let quantity: MetricQuantity
   /// Uses a clock that keeps running during system sleep, so a reading taken before sleep is old after wake.
   public let acquiredAt: ContinuousClock.Instant
   public let state: SampleState
 
-  public init(source: SourceID, acquiredAt: ContinuousClock.Instant, state: SampleState) {
+  public init(source: SourceID, quantity: MetricQuantity, acquiredAt: ContinuousClock.Instant, state: SampleState) {
     self.source = source
+    self.quantity = quantity
     self.acquiredAt = acquiredAt
     self.state = state
   }

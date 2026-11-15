@@ -17,6 +17,7 @@ public enum SensorReading: Equatable, Sendable {
 /// The hardware-facing adapter for one metric. Any undocumented macOS interface stays inside its sensor.
 public protocol MetricSensor: Sendable {
   var source: SourceID { get }
+  var quantity: MetricQuantity { get }
 
   mutating func open() throws(SensorError)
   mutating func read() throws(SensorError) -> SensorReading

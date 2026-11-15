@@ -66,6 +66,7 @@ struct CPUSensorTests {
 
     #expect(reading.state == .valid(MetricValue(40, .percent)))
     #expect(reading.source == SourceID("cpu.host_processor_info"))
+    #expect(reading.quantity == .utilization)
   }
 
   @Test func userSystemAndNiceTimeCountAsBusy() async {

@@ -2,15 +2,16 @@ import Foundation
 import KernCore
 
 let usage = """
-  usage: kern-probe [cpu]
+  usage: kern-probe [cpu | gpu]
 
     (no mode)  print the chip identity
     cpu        print the chip identity, then one CPU reading every 2 seconds until interrupted
+    gpu        print the chip identity, then one GPU reading every 2 seconds until interrupted
   """
 
 let mode = CommandLine.arguments.dropFirst().first
 
-guard mode == nil || mode == "cpu" else {
+guard mode == nil || mode == "cpu" || mode == "gpu" else {
   print(usage)
   exit(EX_USAGE)
 }
@@ -24,8 +25,10 @@ case .unrecognized(nil):
   print("chip: unrecognized (no brand string reported)")
 }
 
-if mode == "cpu" {
-  await printReadings(of: CPUSensor(), every: .seconds(2))
+switch mode {
+case "cpu": await printReadings(of: CPUSensor(), every: .seconds(2))
+case "gpu": await printReadings(of: GPUSensor(), every: .seconds(2))
+default: break
 }
 
 /// Samples on a fixed cadence. A sample that runs late skips the missed ticks instead of catching up.
@@ -47,8 +50,10 @@ func printReadings(of sensor: some MetricSensor, every interval: Duration) async
 
   while true {
     let sample = await provider.sample()
+    let time = Date.now.formatted(timeFormat)
 
-    print("\(Date.now.formatted(timeFormat))  \(sample.source)  \(describe(sample.state))")
+    print("\(time)  \(sample.source)  \(describe(sample.quantity))  \(describe(sample.state))")
+
     fflush(nil)
 
     deadline += interval
@@ -56,6 +61,14 @@ func printReadings(of sensor: some MetricSensor, every interval: Duration) async
     while deadline < clock.now { deadline += interval }
 
     try? await clock.sleep(until: deadline, tolerance: .milliseconds(100))
+  }
+}
+
+func describe(_ quantity: MetricQuantity) -> String {
+  switch quantity {
+  case .utilization: "utilization"
+  case .activeResidency: "active residency"
+  case .temperature: "temperature"
   }
 }
 

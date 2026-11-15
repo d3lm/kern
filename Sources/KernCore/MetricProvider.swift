@@ -8,6 +8,7 @@ public enum Availability: Equatable, Sendable {
 /// off the main actor.
 public actor MetricProvider {
   public nonisolated let source: SourceID
+  public nonisolated let quantity: MetricQuantity
   private var sensor: any MetricSensor
   private var isOpen = false
   public private(set) var availability: Availability = .stopped
@@ -15,6 +16,7 @@ public actor MetricProvider {
 
   public init(sensor: some MetricSensor) {
     self.source = sensor.source
+    self.quantity = sensor.quantity
     self.sensor = sensor
   }
 
@@ -47,11 +49,17 @@ public actor MetricProvider {
   public func sample() -> MetricSample {
     let acquiredAt = ContinuousClock.now
 
-    guard isOpen else {
-      let reason: UnavailableReason = errorState.map(UnavailableReason.sensorFailed) ?? .notStarted
+    let sample = MetricSample(source: source, quantity: quantity, acquiredAt: acquiredAt, state: readSensor())
 
-      return MetricSample(source: source, acquiredAt: acquiredAt, state: .unavailable(reason))
+    if sample.value != nil {
+      lastSuccessfulSample = sample
     }
+
+    return sample
+  }
+
+  private func readSensor() -> SampleState {
+    guard isOpen else { return .unavailable(errorState.map(UnavailableReason.sensorFailed) ?? .notStarted) }
 
     do {
       let reading = try sensor.read()
@@ -59,19 +67,13 @@ public actor MetricProvider {
       availability = .available
 
       switch reading {
-      case .value(let value):
-        let sample = MetricSample(source: source, acquiredAt: acquiredAt, state: .valid(value))
-
-        lastSuccessfulSample = sample
-
-        return sample
-      case .noValue(let reason):
-        return MetricSample(source: source, acquiredAt: acquiredAt, state: .unavailable(.noValue(reason)))
+      case .value(let value): return .valid(value)
+      case .noValue(let reason): return .unavailable(.noValue(reason))
       }
     } catch {
       availability = .unavailable(error)
 
-      return MetricSample(source: source, acquiredAt: acquiredAt, state: .unavailable(.sensorFailed(error)))
+      return .unavailable(.sensorFailed(error))
     }
   }
 }

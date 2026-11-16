@@ -6,13 +6,12 @@ func sample(_ state: SampleState, at acquiredAt: ContinuousClock.Instant = start
   MetricSample(source: SourceID("test.sensor"), quantity: .utilization, acquiredAt: acquiredAt, state: state)
 }
 
-func value(_ value: Double, _ unit: MetricUnit = .percent) -> SampleState {
-  .valid(MetricValue(value, unit))
+func value(_ value: Double, _ unit: MetricUnit = .percent, cores: CoreUtilization? = nil) -> SampleState {
+  .valid(MetricValue(value, unit, cores: cores))
 }
 
 let failed = SampleState.unavailable(.sensorFailed(SensorError("read failed")))
 
-/// The readings of `metric` after recording `samples` in a store, as the menu bar receives them.
 @MainActor
 func readings(
   _ metric: Metric,

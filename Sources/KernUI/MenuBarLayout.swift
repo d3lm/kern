@@ -4,7 +4,6 @@ import os
 
 private let logger = Logger(subsystem: "Kern", category: "menu bar")
 
-/// One item of the menu bar, showing one metric.
 enum Widget: String, CaseIterable, Sendable {
   case temperature
   case cpu
@@ -20,7 +19,6 @@ enum Widget: String, CaseIterable, Sendable {
     }
   }
 
-  /// The temperature has no label, because its degree sign already says what it is.
   var label: String? {
     switch self {
     case .temperature: nil
@@ -31,14 +29,12 @@ enum Widget: String, CaseIterable, Sendable {
   }
 }
 
-/// Which widgets the menu bar shows, in which order, and whether they show their labels.
 struct MenuBarLayout: Equatable, Sendable {
   let widgets: [Widget]
   let showsLabels: Bool
 
   static let standard = MenuBarLayout(widgets: [.temperature, .cpu, .gpu, .memory], showsLabels: true)!
 
-  /// Fails when `widgets` is empty, which would leave nothing in the menu bar to click, or lists a widget twice.
   init?(widgets: [Widget], showsLabels: Bool) {
     guard !widgets.isEmpty, Set(widgets).count == widgets.count else { return nil }
 
@@ -50,14 +46,6 @@ struct MenuBarLayout: Equatable, Sendable {
 extension MenuBarLayout {
   static let defaultsKey = "menuBarLayout"
 
-  /// The layout stored as a dictionary under `menuBarLayout`, which `defaults write` and the launch argument
-  /// `-menuBarLayout` both accept as text:
-  ///
-  /// ```
-  /// { widgets = (temperature, cpu, gpu); showsLabels = YES; }
-  /// ```
-  ///
-  /// A missing or invalid value gives the standard layout, so a bad value can never leave Kern without a menu-bar item.
   static func configured(in defaults: UserDefaults) -> MenuBarLayout {
     guard let value = defaults.object(forKey: defaultsKey) else { return .standard }
 
@@ -86,8 +74,7 @@ extension MenuBarLayout {
     self.init(widgets: widgets, showsLabels: showsLabels)
   }
 
-  /// A property list written as text has no Booleans, only strings, so these are read the way `UserDefaults` reads a
-  /// Boolean stored as a string.
+  /// A property list written as text, as by `defaults write`, has no Booleans, only strings.
   private static func boolean(_ value: Any) -> Bool? {
     switch value {
     case let value as Bool: value

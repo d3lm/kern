@@ -1,6 +1,3 @@
-/// The most recent samples of one metric, oldest first.
-///
-/// The storage is allocated once and then overwritten in a circle, so a history kept for days never grows.
 public struct SampleHistory: RandomAccessCollection, Sendable {
   public let capacity: Int
   private var storage: ContiguousArray<MetricSample> = []

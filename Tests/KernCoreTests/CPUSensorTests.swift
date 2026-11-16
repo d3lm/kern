@@ -3,8 +3,8 @@ import Testing
 
 @testable import KernCore
 
-/// Replays scripted counter reads in order.
 struct ScriptedTicks: CPUTickSource {
+  var coreKinds: [CoreKind]?
   var reads: [Result<[CPUTicks], SensorError>]
 
   mutating func open() throws(SensorError) {}
@@ -28,16 +28,81 @@ func cpu(user: UInt32 = 0, system: UInt32 = 0, idle: UInt32 = 0, nice: UInt32 = 
 struct CPUSensorTests {
   let failure = SensorError("host_processor_info failed")
 
-  func startedProvider(_ reads: [Result<[CPUTicks], SensorError>]) async -> MetricProvider {
-    let provider = MetricProvider(sensor: CPUSensor(ticks: ScriptedTicks(reads: reads)))
+  func startedProvider(kinds: [CoreKind]? = nil, _ reads: [Result<[CPUTicks], SensorError>]) async -> MetricProvider {
+    let provider = MetricProvider(sensor: CPUSensor(ticks: ScriptedTicks(coreKinds: kinds, reads: reads)))
 
     await provider.start()
 
     return provider
   }
 
-  func startedProvider(_ reads: [[CPUTicks]]) async -> MetricProvider {
-    await startedProvider(reads.map { .success($0) })
+  func startedProvider(kinds: [CoreKind]? = nil, _ reads: [[CPUTicks]]) async -> MetricProvider {
+    await startedProvider(kinds: kinds, reads.map { .success($0) })
+  }
+
+  func secondValue(kinds: [CoreKind]?, _ reads: [[CPUTicks]]) async -> MetricValue? {
+    let provider = await startedProvider(kinds: kinds, reads)
+
+    _ = await provider.sample()
+
+    return await provider.sample().value
+  }
+
+  @Test func eachCoreHasItsOwnShareGroupedByKindInLogicalCPUOrder() async {
+    let kinds: [CoreKind] = [.efficiency, .efficiency, .performance, .performance, .performance]
+    let later = [
+      cpu(user: 90, idle: 10), cpu(user: 80, idle: 20), cpu(user: 10, idle: 90), cpu(idle: 100),
+      cpu(user: 60, idle: 40),
+    ]
+
+    let value = await secondValue(kinds: kinds, [Array(repeating: cpu(), count: 5), later])
+
+    #expect(value?.cores == CoreUtilization(performance: [10, 0, 60], efficiency: [90, 80]))
+  }
+
+  @Test func totalIsTheMeanOfTheCoresOfTheSameSample() async throws {
+    let value = await secondValue(
+      kinds: [.efficiency, .efficiency, .performance, .performance],
+      [
+        Array(repeating: cpu(idle: 0), count: 4),
+        [cpu(user: 150, idle: 50), cpu(system: 37, idle: 163), cpu(idle: 197, nice: 3), cpu(user: 200)],
+      ])
+
+    let total = try #require(value?.value)
+    let cores = try #require(value?.cores)
+    let shares = cores.performance + cores.efficiency
+
+    #expect(abs(total - shares.reduce(0, +) / Double(shares.count)) < 1e-9)
+    #expect(abs(total - 48.75) < 1e-9)
+  }
+
+  @Test(arguments: [nil, [CoreKind.performance], [.performance, .efficiency, .efficiency]])
+  func coresWhoseKindsAreNotKnownForEveryCPUHaveNoSharesButTheTotalStays(kinds: [CoreKind]?) async {
+    let value = await secondValue(kinds: kinds, [[cpu(), cpu()], [cpu(user: 50, idle: 50), cpu(idle: 100)]])
+
+    #expect(value == MetricValue(25, .percent, split: CPUTimeSplit(user: 25, system: 0)))
+  }
+
+  @Test func coreWhoseCountersDidNotAdvanceLeavesNoSharesButTheTotalStays() async {
+    let value = await secondValue(
+      kinds: [.performance, .efficiency], [[cpu(), cpu(idle: 10)], [cpu(user: 50, idle: 50), cpu(idle: 10)]])
+
+    #expect(value == MetricValue(50, .percent, split: CPUTimeSplit(user: 50, system: 0)))
+  }
+
+  @Test func busyTimeSplitsIntoUserAndSystemTimeThatAddUpToTheTotal() async throws {
+    let value = await secondValue(
+      kinds: nil,
+      [
+        [cpu(user: 10, system: 20, idle: 30, nice: 40), cpu(user: 5, system: 5, idle: 5, nice: 5)],
+        [cpu(user: 40, system: 40, idle: 70, nice: 50), cpu(user: 5, system: 65, idle: 45, nice: 5)],
+      ])
+
+    let total = try #require(value?.value)
+    let split = try #require(value?.split)
+
+    #expect(split == CPUTimeSplit(user: 20, system: 40))
+    #expect(abs(split.user + split.system - total) < 1e-9)
   }
 
   @Test func firstSampleAfterStartIsUnavailableWithoutAnError() async {
@@ -64,7 +129,7 @@ struct CPUSensorTests {
 
     let reading = await provider.sample()
 
-    #expect(reading.state == .valid(MetricValue(40, .percent)))
+    #expect(reading.value?.value == 40)
     #expect(reading.source == SourceID("cpu.host_processor_info"))
     #expect(reading.quantity == .utilization)
   }
@@ -77,7 +142,7 @@ struct CPUSensorTests {
 
     _ = await provider.sample()
 
-    #expect(await provider.sample().state == .valid(MetricValue(60, .percent)))
+    #expect(await provider.sample().value?.value == 60)
   }
 
   @Test func readingsStayWithinZeroToOneHundredPercent() async {
@@ -96,8 +161,8 @@ struct CPUSensorTests {
     let allBusy = await provider.sample()
     let largestPossibleStep = await provider.sample()
 
-    #expect(allIdle.state == .valid(MetricValue(0, .percent)))
-    #expect(allBusy.state == .valid(MetricValue(100, .percent)))
+    #expect(allIdle.value?.value == 0)
+    #expect(allBusy.value?.value == 100)
     #expect(largestPossibleStep.value.map { (0...100).contains($0.value) } == true)
   }
 
@@ -129,7 +194,7 @@ struct CPUSensorTests {
 
     #expect(backwards.state == .unavailable(.noValue(.countersWentBackwards)))
     #expect(await provider.lastSuccessfulSample == next)
-    #expect(next.state == .valid(MetricValue(50, .percent)))
+    #expect(next.value?.value == 50)
   }
 
   @Test func failedReadSetsTheErrorStateAndTheNextReadWorks() async {
@@ -148,7 +213,7 @@ struct CPUSensorTests {
 
     let recovered = await provider.sample()
 
-    #expect(recovered.state == .valid(MetricValue(25, .percent)))
+    #expect(recovered.value?.value == 25)
     #expect(await provider.errorState == nil)
     #expect(await provider.availability == .available)
   }
@@ -166,7 +231,7 @@ struct CPUSensorTests {
     let next = await provider.sample()
 
     #expect(afterChange.state == .unavailable(.noValue(.awaitingBaseline)))
-    #expect(next.state == .valid(MetricValue(100, .percent)))
+    #expect(next.value?.value == 100)
   }
 
   @Test func restartDiscardsTheBaselineFromBeforeStop() async {
@@ -186,13 +251,37 @@ struct CPUSensorTests {
   @Test func machCountersCoverEveryLogicalCPU() throws {
     var source = MachProcessorTicks()
 
-    try source.open()
+    _ = try source.open()
 
     defer { source.close() }
 
     let ticks = try source.read()
 
     #expect(ticks.count == sysconf(_SC_NPROCESSORS_CONF))
+  }
+
+  @Test func deviceTreeNamesTheKindOfEveryLogicalCPU() throws {
+    func logicalCPUs(_ level: Int) -> Int {
+      var count: Int32 = 0
+      var size = MemoryLayout<Int32>.size
+
+      return sysctlbyname("hw.perflevel\(level).logicalcpu", &count, &size, nil, 0) == 0 ? Int(count) : 0
+    }
+
+    let kinds = try #require(MachProcessorTicks.deviceTreeCoreKinds())
+
+    #expect(kinds.count == sysconf(_SC_NPROCESSORS_CONF))
+    #expect(kinds.count { $0 == .performance } == logicalCPUs(0))
+    #expect(kinds.count { $0 == .efficiency } == logicalCPUs(1))
+  }
+
+  @Test @MainActor func coreKindsAreKnownBeforeTheFirstRead() {
+    let kinds: [CoreKind] = [.efficiency, .performance]
+    let coordinator = MetricsCoordinator(
+      providers: [.cpu: MetricProvider(sensor: CPUSensor(ticks: ScriptedTicks(coreKinds: kinds, reads: [])))])
+
+    #expect(CPUSensor().coreKinds == MachProcessorTicks.deviceTreeCoreKinds())
+    #expect(coordinator.source(of: .cpu).coreKinds == kinds)
   }
 
   @Test func liveSensorGivesAReadingWithinRange() async throws {
@@ -211,7 +300,12 @@ struct CPUSensorTests {
       return
     }
 
+    let cores = try #require(reading.cores)
+    let shares = cores.performance + cores.efficiency
+
     #expect(reading.unit == .percent)
     #expect((0...100).contains(reading.value))
+    #expect(shares.count == sysconf(_SC_NPROCESSORS_CONF))
+    #expect(shares.allSatisfy { (0...100).contains($0) })
   }
 }

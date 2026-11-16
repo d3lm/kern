@@ -2,7 +2,6 @@ import Testing
 
 @testable import KernCore
 
-/// Reports `installed` bytes and replays scripted count reads in order.
 struct ScriptedMemoryCounts: MemoryCountSource {
   var installed: UInt64 = 32 << 30
   var reads: [Result<MemoryCounts, SensorError>]
@@ -23,7 +22,6 @@ struct ScriptedMemoryCounts: MemoryCountSource {
   mutating func close() {}
 }
 
-/// Counts in 16 KiB pages, the page size of Apple Silicon, given in GiB.
 func memory(anonymous: Double, purgeable: Double = 0, wired: Double = 0, compressor: Double = 0) -> MemoryCounts {
   let pagesPerGiB = Double(1 << 30) / 16_384
 

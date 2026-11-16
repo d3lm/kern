@@ -1,9 +1,6 @@
 #if DEBUG
   import KernCore
 
-  /// Launch arguments for testing, on one Mac, how Kern handles failing sensors and other chips.
-  /// They exist only in Debug builds, so a Release build always reads its real sensors on its
-  /// real chip.
   struct DebugLaunchOptions: Equatable {
     enum Failure: Equatable {
       case always
@@ -17,7 +14,7 @@
     private(set) var failures: [Metric: Failure] = [:]
     private(set) var chip: ChipIdentity?
 
-    /// Ignores arguments it does not know, because macOS and Xcode pass their own.
+    /// Must skip unknown arguments, because macOS and Xcode pass their own.
     init(arguments: [String]) throws(InvalidArgument) {
       var arguments = arguments.dropFirst()
 
@@ -42,7 +39,8 @@
     }
 
     private static func failure(from value: String?) throws(InvalidArgument) -> (Metric, Failure) {
-      let usage = "--fail needs <metric>[:<seconds>], where <metric> is cpu, gpu, temperature, or memory-pressure"
+      let usage =
+        "--fail needs <metric>[:<seconds>], where <metric> is cpu, gpu, temperature, memory, or memory-pressure"
 
       guard let parts = value?.split(separator: ":", omittingEmptySubsequences: false), parts.count <= 2,
         let metric = Metric(rawValue: String(parts[0]))
@@ -59,7 +57,6 @@
       return (metric, .during(.seconds(seconds)))
     }
 
-    /// `sensor`, made to fail as `--fail` asked for `metric`, counting from `launch`.
     func sensor(
       _ sensor: any MetricSensor,
       for metric: Metric,
@@ -73,15 +70,14 @@
     }
   }
 
-  /// A sensor whose reads fail until `failsUntil`, or always when it is `nil`. Opening and closing
-  /// reach the real sensor, so the provider sees the failure exactly as it would see a source that
-  /// broke after opening.
   struct FailingSensor: MetricSensor {
     var base: any MetricSensor
     let failsUntil: ContinuousClock.Instant?
 
     var source: SourceID { base.source }
     var quantity: MetricQuantity { base.quantity }
+    var sourceDescription: String { base.sourceDescription }
+    var coreKinds: [CoreKind]? { base.coreKinds }
 
     mutating func open() throws(SensorError) {
       try base.open()

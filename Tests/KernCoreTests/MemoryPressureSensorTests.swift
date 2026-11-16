@@ -4,7 +4,6 @@ import Testing
 
 @testable import KernCore
 
-/// Replays scripted available shares in order.
 final class ScriptedAvailability: MemoryAvailabilitySource, Sendable {
   private let results: Mutex<[Result<Int, SensorError>]>
 

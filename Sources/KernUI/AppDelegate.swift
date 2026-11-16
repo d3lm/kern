@@ -1,8 +1,6 @@
 import AppKit
 import KernCore
 
-/// Builds Kern at launch: a provider for each metric, the coordinator that samples them, and the menu-bar
-/// item that shows the samples.
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
   private var coordinator: MetricsCoordinator<ContinuousClock>?
@@ -11,7 +9,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
   public func applicationDidFinishLaunching(_ notification: Notification) {
     let coordinator = MetricsCoordinator(providers: Self.providers())
 
-    statusItem = StatusItemController(store: coordinator.store, layout: .configured(in: .standard))
+    statusItem = StatusItemController(
+      store: coordinator.store,
+      layout: .configured(in: .standard),
+      details: DetailPopover(coordinator: coordinator)
+    )
+
     coordinator.start()
 
     self.coordinator = coordinator
@@ -37,6 +40,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       .cpu: CPUSensor(),
       .gpu: GPUSensor(),
       .temperature: TemperatureSensor(chip: chip),
+      .memory: MemorySensor(),
       .memoryPressure: MemoryPressureSensor(),
     ]
 

@@ -36,12 +36,9 @@ public struct Chip: Hashable, Sendable, CustomStringConvertible {
 
 public enum ChipIdentity: Hashable, Sendable, CustomStringConvertible {
   case recognized(Chip)
-
-  /// `brandString` is nil when the system did not report one.
   case unrecognized(brandString: String?)
 
-  /// Accepts only the exact strings Apple Silicon reports in `machdep.cpu.brand_string`.
-  /// Anything else is unrecognized, so chip-specific adapters are never applied by guesswork.
+  /// Matches exact brand strings only, so chip-specific adapters are never applied to a chip by guesswork.
   public init(brandString: String) {
     if let chip = Chip.all.first(where: { "Apple \($0)" == brandString }) {
       self = .recognized(chip)
@@ -59,7 +56,6 @@ public enum ChipIdentity: Hashable, Sendable, CustomStringConvertible {
 }
 
 public enum ChipIdentifier {
-  /// Read from the system on first access and kept for the life of the process.
   public static let current: ChipIdentity =
     readBrandString().map(ChipIdentity.init(brandString:))
     ?? .unrecognized(brandString: nil)

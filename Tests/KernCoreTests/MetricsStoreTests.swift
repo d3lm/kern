@@ -52,19 +52,21 @@ struct MetricsStoreTests {
 
   func store(cpuInterval: Duration = .seconds(2)) -> MetricsStore {
     MetricsStore(intervals: [
-      .cpu: cpuInterval, .gpu: .seconds(2), .temperature: .seconds(10), .memoryPressure: .seconds(5),
+      .cpu: cpuInterval, .gpu: .seconds(2), .temperature: .seconds(10), .memory: .seconds(5),
+      .memoryPressure: .seconds(5),
     ])
   }
 
-  @Test func cpuAndGPUKeepSixtySamplesOfHistoryAndTemperatureAndMemoryPressureNone() {
+  @Test func cpuAndGPUKeepSixtySamplesOfHistoryAndTheOtherMetricsNone() {
     let store = store()
 
     #expect(store[.cpu]?.history?.capacity == 60)
     #expect(store[.gpu]?.history?.capacity == 60)
-    #expect(store[.temperature] != nil)
-    #expect(store[.temperature]?.history == nil)
-    #expect(store[.memoryPressure] != nil)
-    #expect(store[.memoryPressure]?.history == nil)
+
+    for metric in [Metric.temperature, .memory, .memoryPressure] {
+      #expect(store[metric] != nil, "\(metric)")
+      #expect(store[metric]?.history == nil, "\(metric)")
+    }
   }
 
   @Test func unavailableSampleEntersTheHistoryAsAGapNotAsZero() {

@@ -1,32 +1,24 @@
 import Darwin
 
-/// System-wide memory counts at one moment, in pages of `pageSize` bytes.
 struct MemoryCounts: Equatable, Sendable {
   var pageSize: UInt64
-  /// Memory belonging to processes rather than to files, compressed or not yet.
   var anonymousPages: UInt64
-  /// Anonymous memory that its owner has marked as safe to discard when memory is short.
   var purgeablePages: UInt64
-  /// Memory that cannot be compressed or paged out, mostly the system's.
   var wiredPages: UInt64
-  /// Memory holding compressed data.
   var compressorPages: UInt64
 }
 
-/// Where `MemorySensor` gets its counts.
 protocol MemoryCountSource: Sendable {
-  /// The installed memory in bytes.
   mutating func open() throws(SensorError) -> UInt64
   mutating func read() throws(SensorError) -> MemoryCounts
   mutating func close()
 }
 
-/// The share of installed memory in use, 0–100%, counted as Activity Monitor counts its Memory Used: app memory,
-/// which is anonymous memory that cannot be discarded, plus wired memory, plus the memory holding compressed data.
-/// Memory caching files is not counted, because macOS gives it back as soon as it is needed.
 public struct MemorySensor: MetricSensor {
   public let source = SourceID("memory.host_statistics64")
   public let quantity = MetricQuantity.memoryUsage
+  public let sourceDescription = "App, wired, and compressed memory, as Activity Monitor counts Memory Used"
+  public let coreKinds: [CoreKind]? = nil
   private var counts: any MemoryCountSource
   private var installed: UInt64?
 
@@ -46,8 +38,6 @@ public struct MemorySensor: MetricSensor {
     self.installed = installed
   }
 
-  /// A count that does not fit together with the others fails the read, because the share it would give could
-  /// not be trusted.
   public mutating func read() throws(SensorError) -> SensorReading {
     guard let installed else { throw SensorError("the memory sensor is not open") }
 
@@ -73,8 +63,6 @@ public struct MemorySensor: MetricSensor {
   }
 }
 
-/// Memory counts from `host_statistics64(HOST_VM_INFO64)` and the installed memory from `hw.memsize`,
-/// public interfaces that need no privileges.
 struct MachMemoryCounts: MemoryCountSource {
   private var host = mach_port_t(MACH_PORT_NULL)
   private var pageSize: vm_size_t = 0

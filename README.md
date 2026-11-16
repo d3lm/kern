@@ -23,7 +23,9 @@ xcodebuild -project App/Kern.xcodeproj -scheme Kern -configuration Release -deri
 open .build/xcode/Build/Products/Release/Kern.app
 ```
 
-Or open `App/Kern.xcodeproj` in Xcode and run the `Kern` scheme. Quit Kern from its menu.
+Or open `App/Kern.xcodeproj` in Xcode and run the `Kern` scheme.
+
+Click the menu-bar item for the details of every metric: CPU usage with its history and one bar for each core, GPU activity with its history, the CPU temperature and the sensors it comes from, used memory, and memory pressure, each with the time of its last reading. Used memory is sampled only while this panel is open. Right-click the item, or Control-click it, for the menu with Quit Kern.
 
 By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory pressure, in that order. To change the order, hide widgets, or hide the `CPU`, `GPU`, and `RAM` labels, set the layout and restart Kern:
 
@@ -32,7 +34,7 @@ defaults write dev.kern.Kern menuBarLayout '{ widgets = (gpu, cpu); showsLabels 
 defaults delete dev.kern.Kern menuBarLayout    # back to the default
 ```
 
-Debug builds accept `--fail <metric>[:<seconds>]` to make a sensor fail and `--chip "<brand string>"` to pretend to run on another chip. [.cursor/docs/menu-bar.md](.cursor/docs/menu-bar.md) describes both, and what each widget shows when a reading is missing or stale.
+Debug builds accept `--fail <metric>[:<seconds>]` to make a sensor fail and `--chip "<brand string>"` to pretend to run on another chip. [.cursor/docs/menu-bar.md](.cursor/docs/menu-bar.md) describes both, and what each widget shows when a reading is missing or stale; [.cursor/docs/popover.md](.cursor/docs/popover.md) does the same for the popover.
 
 `kern-probe` is a development tool that prints sensor readings in the terminal. It is not part of the app.
 
@@ -90,7 +92,7 @@ interval cpu 1
 16:04:42  cpu every 1 s
 ```
 
-While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, or `memory-pressure`. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
+While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, `memory`, or `memory-pressure`. Used memory is sampled only after `details on`, as the app samples it only while its popover is open; `details off` stops it again. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
 
 To find the temperature sensors of a new chip, list every temperature the SMC reports, one comma-separated row per second, and watch which ones follow a CPU load:
 
@@ -116,14 +118,27 @@ To fill a given amount of memory (default 4 GiB) with random bytes that cannot b
 swift Scripts/memory-load.swift 4 30
 ```
 
+To measure how long the popover takes to open and how much memory it leaves behind, run Kern from a Release build that opens and closes the popover by posting clicks to its own menu-bar item:
+
+```sh
+$ swift build -c release --product kern-popover-bench && .build/release/kern-popover-bench 50
+memory before the first opening: footprint 13.1 MiB, resident 24.1 MiB
+memory after 1 opening: footprint 14.3 MiB, resident 31.5 MiB
+memory after 20 openings: footprint 18.0 MiB, resident 40.0 MiB
+memory after 50 openings: footprint 19.3 MiB, resident 41.5 MiB
+openings: 50, 0 failed checks
+click to drawn, ms: median 40.7, p95 50.9, max 61.0
+```
+
 ## Project layout
 
-| Path                  | Contents                                                    |
-| --------------------- | ----------------------------------------------------------- |
-| `Sources/KernCore`    | Chip detection, sensors, and metric collection              |
-| `Sources/KernUI`      | The menu bar and the app's startup                          |
-| `Sources/kern-probe`  | The development probe                                       |
-| `App`                 | The Xcode project: the app's entry point and build settings |
-| `Tests/KernCoreTests` | Unit tests of the core                                      |
-| `Tests/KernUITests`   | Unit tests of the menu bar                                  |
-| `Scripts`             | Development measurement scripts                             |
+| Path                         | Contents                                                    |
+| ---------------------------- | ----------------------------------------------------------- |
+| `Sources/KernCore`           | Chip detection, sensors, and metric collection              |
+| `Sources/KernUI`             | The menu bar, the popover, and the app's startup            |
+| `Sources/kern-probe`         | The development probe                                       |
+| `Sources/kern-popover-bench` | The popover measurement tool                                |
+| `App`                        | The Xcode project: the app's entry point and build settings |
+| `Tests/KernCoreTests`        | Unit tests of the core                                      |
+| `Tests/KernUITests`          | Unit tests of the menu bar and the popover                  |
+| `Scripts`                    | Development measurement scripts                             |

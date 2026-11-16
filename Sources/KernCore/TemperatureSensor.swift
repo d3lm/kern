@@ -1,13 +1,9 @@
-/// Where `TemperatureSensor` gets its readings.
 protocol TemperatureSource: Sendable {
-  /// Prepares to read `keys`, and only those, on every `read()`.
   mutating func open(keys: [String]) throws(SensorError)
-  /// The current temperature of each key passed to `open`, in degrees Celsius.
   mutating func read() throws(SensorError) -> [String: Double]
   mutating func close()
 }
 
-/// The verified CPU die sensors of one chip, and how their readings combine into one CPU temperature.
 struct CPUTemperatureMap: Equatable, Sendable {
   enum Aggregation: Sendable {
     case maximum
@@ -22,11 +18,9 @@ struct CPUTemperatureMap: Equatable, Sendable {
   let sensors: [String]
   let aggregation: Aggregation
 
-  /// Sensor names differ between chip generations and variants, so a chip is listed only after its sensors have
-  /// been verified on that chip. Every other chip has no temperature rather than one read from guessed sensors.
+  /// Sensor keys differ between chip generations and variants, so add a chip only after verifying its keys on it.
   static let validated: [Chip: CPUTemperatureMap] = [
-    // One key per CPU core, the middle one of each core's three. The first of the three is always this one minus
-    // a fixed offset, and the third is a separate, noisier value; see docs/sensors.md.
+    // one key per core, the middle of its three: the first is this one minus a fixed offset, the third is noisier
     Chip(family: .m1, variant: .max): CPUTemperatureMap(
       sensors: ["Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b"],
       aggregation: .maximum
@@ -40,10 +34,6 @@ struct CPUTemperatureMap: Equatable, Sendable {
   }
 }
 
-/// CPU temperature in degrees Celsius, combined from the verified CPU die sensors in the chip's sensor map.
-///
-/// A chip without a validated sensor map has no temperature. Opening the sensor then fails without touching the
-/// hardware.
 public struct TemperatureSensor: MetricSensor {
   public let source = SourceID("temperature.smc.cpu")
   public let quantity = MetricQuantity.temperature
@@ -51,9 +41,7 @@ public struct TemperatureSensor: MetricSensor {
   private let map: CPUTemperatureMap?
   private var temperatures: any TemperatureSource
 
-  /// A value outside this range means the source is broken, not the chip. A running chip is never colder than the
-  /// coolest room Apple specifies its Macs to work in, and SMC sensors without a reading report exactly 0. The
-  /// upper end leaves a wide margin over the hottest readings measured under full load (docs/sensors.md).
+  /// SMC sensors without a reading report exactly 0, so the lower bound must stay above 0.
   static let plausibleRange: ClosedRange<Double> = 10...130
 
   public init(chip: ChipIdentity) {
@@ -66,12 +54,20 @@ public struct TemperatureSensor: MetricSensor {
     self.temperatures = temperatures
   }
 
+  public let coreKinds: [CoreKind]? = nil
+
+  public var sourceDescription: String {
+    guard let map else { return "No CPU temperature sensors have been validated for this chip (\(chip))" }
+
+    switch map.aggregation {
+    case .maximum: return "Hottest of the \(map.sensors.count) CPU core sensors in the SMC validated for the \(chip)"
+    }
+  }
+
   public mutating func open() throws(SensorError) {
     try temperatures.open(keys: validatedMap().sensors)
   }
 
-  /// One implausible or missing sensor fails the whole read. Combining the others would hide that the source no
-  /// longer means what was verified.
   public mutating func read() throws(SensorError) -> SensorReading {
     let map = try validatedMap()
     let readings = try temperatures.read()
@@ -106,9 +102,6 @@ public struct TemperatureSensor: MetricSensor {
   }
 }
 
-/// Temperatures from SMC keys of type `flt `, a 32-bit float in degrees Celsius.
-///
-/// Each key's type is checked once in `open()`, so a read makes exactly one SMC call per key.
 struct SMCTemperatures: TemperatureSource {
   private var connection: SMCConnection?
   private var keys: [SMCKey] = []
@@ -162,8 +155,6 @@ struct SMCTemperatures: TemperatureSource {
   }
 }
 
-/// Every temperature the SMC reports as a float, for validation work only: finding them takes one SMC call for each
-/// of its roughly 2,000 keys. The app reads just the sensors in the chip's sensor map.
 public struct TemperatureSurvey: Sendable {
   public let sensors: [String]
   private var temperatures = SMCTemperatures()

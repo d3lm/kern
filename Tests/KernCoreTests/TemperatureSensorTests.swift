@@ -2,7 +2,6 @@ import Testing
 
 @testable import KernCore
 
-/// Replays scripted readings in order, and logs which sensors it was opened with and each read.
 struct ScriptedTemperatures: TemperatureSource {
   let log: SensorLog
   var reads: [Result<[String: Double], SensorError>]
@@ -27,7 +26,6 @@ struct ScriptedTemperatures: TemperatureSource {
   }
 }
 
-/// Tests that read the real SMC check the M1 Max sensor map, so they only run on that chip.
 let onM1Max = ChipIdentifier.current == .recognized(Chip(family: .m1, variant: .max))
 
 struct TemperatureSensorTests {
@@ -52,7 +50,6 @@ struct TemperatureSensorTests {
     await startedProvider(reads.map { .success($0) })
   }
 
-  /// Every M1 Max sensor at `celsius`, except the ones in `overrides`.
   func m1Max(at celsius: Double, _ overrides: [String: Double] = [:]) -> [String: Double] {
     Dictionary(uniqueKeysWithValues: Self.m1MaxSensors.map { ($0, celsius) }).merging(overrides) { $1 }
   }
@@ -74,7 +71,7 @@ struct TemperatureSensorTests {
     #expect(await provider.lastSuccessfulSample == sample)
   }
 
-  /// A battery, storage, ambient, or GPU sensor must never become the CPU temperature, even when it is hotter.
+  /// The sensors outside the map are hotter than the ones in it, or the test would pass even if they were read.
   @Test func sensorsOutsideTheMapDoNotContributeToTheValue() async {
     let provider = await startedProvider([m1Max(at: 60, ["TB0T": 125, "TH0x": 110, "TaLP": 90, "Tg05": 99])])
 
@@ -169,7 +166,6 @@ struct TemperatureSensorTests {
     #expect(log.all == ["open " + Self.m1MaxSensors.joined(separator: " "), "read", "read", "read", "close"])
   }
 
-  /// Changing this list means validating the new sensors on the chip and recording them in `docs/sensors.md`.
   @Test func onlyTheM1MaxHasAValidatedSensorMap() {
     let m1Max = Chip(family: .m1, variant: .max)
 

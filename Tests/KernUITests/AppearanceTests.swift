@@ -4,8 +4,6 @@ import Testing
 
 @testable import KernUI
 
-/// Renders the menu bar the way AppKit draws it and inspects the pixels, so the colors are checked
-/// as they come out, not as the code names them.
 @MainActor
 struct AppearanceTests {
   let style = MenuBarStyle()
@@ -35,7 +33,6 @@ struct AppearanceTests {
     return bitmap
   }
 
-  /// Where the widget's value is drawn, after its label.
   func valueFrame(of widget: Widget, in view: MenuBarView) -> NSRect {
     var frame = view[widget].frame
     let offset = style.valueOffset(label: widget.label)
@@ -46,7 +43,6 @@ struct AppearanceTests {
     return frame
   }
 
-  /// The brightness of the most opaque pixel inside `rect`, which is where something is drawn at full strength.
   func brightness(in rect: NSRect, of image: NSBitmapImageRep) -> CGFloat {
     let strongest = image.pixels(in: rect).max { $0.alphaComponent < $1.alphaComponent }!.usingColorSpace(.deviceRGB)!
 
@@ -105,7 +101,6 @@ struct AppearanceTests {
     #expect(image.ink(in: inside) == 0)
   }
 
-  /// A gauge with no level must not look like a gauge at zero, or an unavailable reading would pass for an idle GPU.
   @Test func unavailableGaugeShowsADashAndZeroFillsOnlyTheBottom() {
     let unavailable = menuBarView(.vibrantDark, gpu: [sample(failed)])
     let zero = menuBarView(.vibrantDark, gpu: [sample(value(0))])
@@ -113,10 +108,21 @@ struct AppearanceTests {
     let middle = NSRect(x: gauge.minX + style.gaugeWidth / 2 - 0.5, y: gauge.midY - 0.25, width: 1, height: 0.5)
     let bottom = NSRect(x: gauge.minX + style.gaugeWidth / 2 - 0.5, y: gauge.minY, width: 1, height: 0.5)
 
-    #expect(unavailable[.gpu].content == .level(nil, isStale: false))
+    #expect(unavailable[.gpu].content == .level(.unavailable, isStale: false))
     #expect(rendered(unavailable).ink(in: middle) > 0.8)
     #expect(rendered(unavailable).ink(in: bottom) < 0.5)
     #expect(rendered(zero).ink(in: middle) < 0.5)
     #expect(rendered(zero).ink(in: bottom) > 0.8)
+  }
+
+  @Test func measuringGaugeIsOnlyItsTrack() {
+    let measuring = menuBarView(.vibrantDark, gpu: [sample(.unavailable(.noValue(.awaitingBaseline)))])
+    let gauge = valueFrame(of: .gpu, in: measuring)
+    let middle = NSRect(x: gauge.minX + style.gaugeWidth / 2 - 0.5, y: gauge.midY - 0.25, width: 1, height: 0.5)
+    let image = rendered(measuring)
+
+    #expect(measuring[.gpu].content == .level(.measuring, isStale: false))
+    #expect(image.ink(in: middle) < 0.5)
+    #expect(image.ink(in: middle) > 0)
   }
 }

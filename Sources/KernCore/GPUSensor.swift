@@ -1,23 +1,16 @@
 import Foundation
 
-/// Where `GPUSensor` gets its counters.
 protocol GPUStateResidencySource: Sendable {
   mutating func open() throws(SensorError)
-  /// Cumulative time the GPU has spent in each power state, keyed by state name. The tick length does not matter,
-  /// because only the ratio between states is used.
   mutating func read() throws(SensorError) -> [String: UInt64]
   mutating func close()
 }
 
-/// GPU active-state residency: the share of time between two reads that the GPU spent powered in one of its
-/// performance states rather than off, 0–100%.
-///
-/// This is not utilization. The GPU stays powered while it draws the screen and between closely spaced pieces of
-/// work, so an idle desktop reads well above zero and a partial load reads higher than the share of time the GPU
-/// was busy.
 public struct GPUSensor: MetricSensor {
   public let source = SourceID("gpu.ioreport.gpuph")
   public let quantity = MetricQuantity.activeResidency
+  public let sourceDescription = "Time the GPU spent in its performance states rather than off, from IOReport"
+  public let coreKinds: [CoreKind]? = nil
   private var residency: any GPUStateResidencySource
   private var previous: [String: UInt64]?
 
@@ -34,7 +27,7 @@ public struct GPUSensor: MetricSensor {
     try residency.open()
   }
 
-  /// A read that cannot be compared with the one before still becomes the baseline for the next read.
+  /// Every read must become the baseline, even one that cannot be compared, or a mismatch would never clear.
   public mutating func read() throws(SensorError) -> SensorReading {
     let current = try residency.read()
 
@@ -56,8 +49,7 @@ public struct GPUSensor: MetricSensor {
 
   private static let offState = "OFF"
 
-  /// Only `OFF` is known to be inactive. A state Kern does not know could be inactive too, and counting it as active
-  /// would inflate the reading, so it fails the read until the chip's states have been checked.
+  /// Only `OFF` is known to be inactive, so an unknown state must fail the read rather than count as active.
   static func checkStates(of residency: [String: UInt64]) throws(SensorError) {
     guard residency[offState] != nil else {
       throw SensorError("the GPU power states have no \(offState) state: \(residency.keys.sorted())")
@@ -99,12 +91,8 @@ public struct GPUSensor: MetricSensor {
   }
 }
 
-/// The `GPUPH` channel in IOReport's "GPU Stats" group, where the GPU driver records the time spent in each power
-/// state. Each reader keeps its own previous counters, so other processes reading the same channel cannot change
-/// Kern's result. IOReport is private and needs no privileges.
-///
-/// Holds IOReport objects, which are not `Sendable`. They are created by `open()` and used only by the sensor's
-/// owner, so a sensor handed between threads before it is opened holds none.
+/// `@unchecked Sendable` is sound only while the non-`Sendable` IOReport objects are created in `open()`
+/// and used only by the sensor's owner.
 struct IOReportGPUStateResidency: GPUStateResidencySource, @unchecked Sendable {
   private var subscription: CFTypeRef?
   private var channels: CFMutableDictionary?
@@ -174,10 +162,8 @@ struct IOReportGPUStateResidency: GPUStateResidencySource, @unchecked Sendable {
   }
 }
 
-/// The few functions of the private `libIOReport` that the sensor uses.
 private struct IOReportLibrary: Sendable {
-  /// Loaded once per process and never unloaded. A missing library or function makes the GPU sensor fail to open,
-  /// while the rest of the app keeps working.
+  /// Never unloaded, because the function pointers taken from it must stay valid for the life of the process.
   static let shared = Result { () throws(SensorError) in try IOReportLibrary() }
 
   let copyChannelsInGroup: @convention(c) (CFString?, CFString?, UInt64, UInt64, UInt64) -> Unmanaged<CFDictionary>?

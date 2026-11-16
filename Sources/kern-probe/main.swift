@@ -22,8 +22,9 @@ let usage = """
     enable <metric>
     disable <metric>
     interval <metric> <seconds>
+    details on|off       Sample as the app does with its detail popover open or closed
 
-    <metric> is cpu, gpu, temperature, or memory-pressure
+    <metric> is cpu, gpu, temperature, memory, or memory-pressure
   """
 
 let mode = CommandLine.arguments.dropFirst().first
@@ -73,7 +74,6 @@ func printReadings(of sensor: some MetricSensor, every interval: Duration) async
   }
 }
 
-/// Finds the sensors once, then reads the same ones on every row, so the columns stay aligned.
 func printTemperatureSensors(every interval: Duration) async {
   let survey: TemperatureSurvey
 
@@ -104,6 +104,7 @@ func printMetrics() async {
     .cpu: MetricProvider(sensor: CPUSensor()),
     .gpu: MetricProvider(sensor: GPUSensor()),
     .temperature: MetricProvider(sensor: TemperatureSensor(chip: ChipIdentifier.current)),
+    .memory: MetricProvider(sensor: MemorySensor()),
     .memoryPressure: MetricProvider(sensor: MemoryPressureSensor()),
   ])
 
@@ -136,6 +137,17 @@ func printMetrics() async {
 func apply(_ command: String, to coordinator: MetricsCoordinator<ContinuousClock>) -> String {
   let words = command.split(separator: " ")
 
+  switch words {
+  case ["details", "on"]:
+    coordinator.areDetailsVisible = true
+    return "details visible"
+  case ["details", "off"]:
+    coordinator.areDetailsVisible = false
+    return "details hidden"
+  default:
+    break
+  }
+
   guard words.count >= 2, let metric = Metric(rawValue: String(words[1])) else {
     return "unknown command \"\(command)\""
   }
@@ -157,7 +169,6 @@ func apply(_ command: String, to coordinator: MetricsCoordinator<ContinuousClock
   }
 }
 
-/// Runs `body` on a fixed cadence. A run that ends late skips the missed ticks instead of catching up.
 func repeatEvery(_ interval: Duration, _ body: () async -> Void) async {
   let clock = ContinuousClock()
 
@@ -193,9 +204,11 @@ func describe(_ quantity: MetricQuantity) -> String {
 func describe(_ state: SampleState) -> String {
   switch state {
   case .valid(let reading):
-    switch reading.unit {
-    case .percent: String(format: "%5.1f %%", reading.value)
-    case .celsius: String(format: "%5.1f °C", reading.value)
+    switch (reading.unit, reading.split) {
+    case (.percent, let split?):
+      String(format: "%5.1f %%  (user %5.1f %%, system %5.1f %%)", reading.value, split.user, split.system)
+    case (.percent, nil): String(format: "%5.1f %%", reading.value)
+    case (.celsius, _): String(format: "%5.1f °C", reading.value)
     }
   case .unavailable(.notStarted):
     "unavailable (not started)"

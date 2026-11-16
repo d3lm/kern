@@ -1,17 +1,16 @@
 import KernCore
 
-/// What a widget shows at one moment. Equal contents draw the same pixels, so a widget redraws only when
-/// its content changes.
+/// Must hold everything a widget draws, because a widget redraws only when its content changes.
 enum WidgetContent: Equatable, CustomStringConvertible {
-  /// The last successful value, or `—` when there is none.
   case reading(String, isStale: Bool)
-
-  /// The last successful value in whole percent, or `nil` when there is none.
-  case level(Int?, isStale: Bool)
-
-  /// One level in percent for each slot of the history, oldest first. `nil` is a slot without a value.
-  /// A gap, or a slot not yet filled.
+  case level(Level, isStale: Bool)
   case graph([Double?], isStale: Bool)
+
+  enum Level: Equatable {
+    case measuring
+    case unavailable
+    case percent(Int)
+  }
 
   static let unavailableText = "—"
 
@@ -21,12 +20,10 @@ enum WidgetContent: Equatable, CustomStringConvertible {
     }
   }
 
-  /// The same content once its value has gone stale. Only staleness changes with time alone.
-  /// Everything else changes only with a new sample.
   var markedStale: WidgetContent {
     switch self {
     case .reading(let text, _): .reading(text, isStale: true)
-    case .level(let percent, _): .level(percent, isStale: true)
+    case .level(let level, _): .level(level, isStale: true)
     case .graph(let levels, _): .graph(levels, isStale: true)
     }
   }
@@ -36,7 +33,9 @@ enum WidgetContent: Equatable, CustomStringConvertible {
 
     switch self {
     case .reading(let text, _): return text + stale
-    case .level(let percent, _): return (percent.map { "\($0)%" } ?? Self.unavailableText) + stale
+    case .level(.measuring, _): return "measuring" + stale
+    case .level(.unavailable, _): return Self.unavailableText + stale
+    case .level(.percent(let percent), _): return "\(percent)%" + stale
     case .graph(let levels, _): return "\(levels.count { $0 != nil }) values" + stale
     }
   }
@@ -62,14 +61,19 @@ extension Widget {
       return .reading(text, isStale: isStale)
 
     case .gpu, .memory:
-      return .level(readings.lastSuccessful?.value.map { Int($0.value.rounded()) }, isStale: isStale)
+      if let value = readings.lastSuccessful?.value {
+        return .level(.percent(Int(value.value.rounded())), isStale: isStale)
+      }
+
+      switch readings.latest?.state {
+      case nil, .unavailable(.noValue(.awaitingBaseline)): return .level(.measuring, isStale: isStale)
+      default: return .level(.unavailable, isStale: isStale)
+      }
 
     case .cpu:
       guard let history = readings.history else { preconditionFailure("\(metric) keeps no history to draw") }
 
-      let empty = [Double?](repeating: nil, count: history.capacity - history.count)
-
-      return .graph(empty + history.map { $0.value?.value }, isStale: isStale)
+      return .graph(history.levels, isStale: isStale)
     }
   }
 }

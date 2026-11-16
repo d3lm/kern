@@ -2,24 +2,25 @@ import os
 
 private let logger = Logger(subsystem: "Kern", category: "metrics")
 
-/// Samples each enabled metric on its own schedule while running, and records every sample in `store`.
-///
-/// Each change to a metric's schedule runs only after the previous change has finished, including any sample it had
-/// in progress. A metric therefore never has two schedules or more than one sample waiting to run, however quickly the
-/// configuration changes.
 @MainActor
 public final class MetricsCoordinator<C: Clock<Duration>> {
+  static var baselineSpan: Duration { .milliseconds(250) }
+
   private struct Collector {
     let provider: MetricProvider
     var interval: Duration
     var isEnabled = true
-    /// The latest change to the schedule. Its value is the tick of the last sample taken, which the next change
-    /// needs to keep samples at least one interval apart.
+    var isScheduled = false
     var lastChange: Task<C.Instant?, Never>?
   }
 
   public let store: MetricsStore
   public private(set) var isRunning = false
+
+  public var areDetailsVisible = false {
+    didSet { updateSchedules() }
+  }
+
   private var collectors: [Metric: Collector]
   private let clock: C
 
@@ -41,39 +42,23 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
   }
 
   public func start() {
-    guard !isRunning else { return }
-
     isRunning = true
-
-    for (metric, collector) in collectors where collector.isEnabled {
-      begin(metric)
-    }
+    updateSchedules()
   }
 
   public func stop() {
-    guard isRunning else { return }
-
     isRunning = false
-
-    for (metric, collector) in collectors where collector.isEnabled {
-      end(metric)
-    }
+    updateSchedules()
   }
 
   public func enable(_ metric: Metric) {
-    guard !collector(metric).isEnabled else { return }
-
     collectors[metric]?.isEnabled = true
-
-    if isRunning { begin(metric) }
+    updateSchedule(of: metric)
   }
 
   public func disable(_ metric: Metric) {
-    guard collector(metric).isEnabled else { return }
-
     collectors[metric]?.isEnabled = false
-
-    if isRunning { end(metric) }
+    updateSchedule(of: metric)
   }
 
   public func setInterval(_ interval: Duration, for metric: Metric) {
@@ -86,13 +71,42 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     collectors[metric]?.interval = interval
     store.setInterval(interval, for: metric)
 
-    if isRunning && collector.isEnabled { retime(metric) }
+    if collector.isScheduled { retime(metric) }
+  }
+
+  public func source(of metric: Metric) -> MetricSource {
+    let provider = collector(metric).provider
+
+    return MetricSource(
+      id: provider.source, quantity: provider.quantity, description: provider.sourceDescription,
+      coreKinds: provider.coreKinds)
   }
 
   private func collector(_ metric: Metric) -> Collector {
     guard let collector = collectors[metric] else { preconditionFailure("no provider for \(metric)") }
 
     return collector
+  }
+
+  private func updateSchedules() {
+    for metric in collectors.keys {
+      updateSchedule(of: metric)
+    }
+  }
+
+  private func updateSchedule(of metric: Metric) {
+    let collector = collector(metric)
+    let isWanted = isRunning && collector.isEnabled && (areDetailsVisible || !metric.isSampledOnlyForDetails)
+
+    guard isWanted != collector.isScheduled else { return }
+
+    collectors[metric]?.isScheduled = isWanted
+
+    if isWanted {
+      begin(metric)
+    } else {
+      end(metric)
+    }
   }
 
   private func begin(_ metric: Metric) {
@@ -128,8 +142,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     }
   }
 
-  /// Cancels the metric's latest change and runs `change` once it has finished. Cancellation only ends sampling;
-  /// starting and stopping the provider always run, so they stay paired.
+  /// Cancellation only ends sampling; starting and stopping the provider always run, so they stay paired.
   private func enqueue(_ metric: Metric, _ change: @escaping @Sendable (_ lastTick: C.Instant?) async -> C.Instant?) {
     let previous = collectors[metric]?.lastChange
 
@@ -140,10 +153,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     }
   }
 
-  /// Sampling with the metric's current interval, captured now so that it runs as configured at the time of the
-  /// change even though it starts later. Its ticks count from now too, not from when it starts, so that metrics
-  /// changed together keep the same ticks however long each provider takes to open, and the menu bar redraws once
-  /// for their samples instead of once for each.
+  /// Read `requested` here, not in the closure, so metrics changed together share ticks and redraw once.
   private func collecting(_ metric: Metric) -> @Sendable (_ lastTick: C.Instant?) async -> C.Instant? {
     let collector = collector(metric)
     let requested = clock.now
@@ -154,11 +164,6 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     }
   }
 
-  /// Samples `provider` every `interval` until the task is cancelled, and returns the tick of the last sample.
-  ///
-  /// The first tick is one interval after `lastTick`, or the moment the change was `requested` if that is later.
-  /// A sample that starts or ends late drops the ticks it missed instead of catching up, so samples never pile up
-  /// behind a slow sensor.
   private nonisolated static func collect(
     _ metric: Metric,
     from provider: MetricProvider,
@@ -173,7 +178,6 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
 
     while true {
       do {
-        // The tolerance lets macOS coalesce the wakeup with other timers.
         try await clock.sleep(until: tick, tolerance: .milliseconds(100))
       } catch {
         return lastTick
@@ -186,6 +190,18 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
       lastTick = tick
 
       if Task.isCancelled { return lastTick }
+
+      if sample.state == .unavailable(.noValue(.awaitingBaseline)) {
+        do {
+          try await clock.sleep(for: baselineSpan)
+        } catch {
+          return lastTick
+        }
+
+        await store.record(await provider.sample(), for: metric)
+
+        if Task.isCancelled { return lastTick }
+      }
 
       let now = clock.now
 

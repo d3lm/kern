@@ -4,11 +4,11 @@ public enum Availability: Equatable, Sendable {
   case unavailable(SensorError)
 }
 
-/// Runs one sensor and keeps its lifecycle and error bookkeeping. Being an actor keeps sensor work
-/// off the main actor.
 public actor MetricProvider {
   public nonisolated let source: SourceID
   public nonisolated let quantity: MetricQuantity
+  public nonisolated let sourceDescription: String
+  public nonisolated let coreKinds: [CoreKind]?
   private var sensor: any MetricSensor
   private var isOpen = false
   public private(set) var availability: Availability = .stopped
@@ -17,6 +17,8 @@ public actor MetricProvider {
   public init(sensor: some MetricSensor) {
     self.source = sensor.source
     self.quantity = sensor.quantity
+    self.sourceDescription = sensor.sourceDescription
+    self.coreKinds = sensor.coreKinds
     self.sensor = sensor
   }
 
@@ -24,7 +26,6 @@ public actor MetricProvider {
     if case .unavailable(let error) = availability { error } else { nil }
   }
 
-  /// Opens the sensor. Calling it again after a failed open retries; calling it while open does nothing.
   public func start() {
     guard !isOpen else { return }
 

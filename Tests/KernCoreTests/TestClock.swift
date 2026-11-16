@@ -1,7 +1,6 @@
 import Synchronization
 import Testing
 
-/// A clock that moves only when a test advances it, so schedules can be checked without waiting for them.
 final class TestClock: Clock, Sendable {
   struct Instant: InstantProtocol {
     let offset: Swift.Duration
@@ -36,10 +35,8 @@ final class TestClock: Clock, Sendable {
 
   var minimumResolution: Swift.Duration { .zero }
 
-  /// Every pending `sleep`. Once all scheduled work has run, this is one per running schedule.
   var sleeperCount: Int { state.withLock { $0.sleepers.count } }
 
-  /// Whole seconds since the clock was created.
   var seconds: Int { Int(now.offset.components.seconds) }
 
   func sleep(until deadline: Instant, tolerance: Swift.Duration?) async throws {
@@ -67,8 +64,6 @@ final class TestClock: Clock, Sendable {
     }
   }
 
-  /// Wakes every sleeper whose deadline has been reached. Safe to call from any thread, including from inside a sensor
-  /// read, which is how a test makes a sample take time.
   func advance(by duration: Swift.Duration) {
     let due = state.withLock { state in
       state.now = state.now.advanced(by: duration)
@@ -84,8 +79,6 @@ final class TestClock: Clock, Sendable {
   }
 }
 
-/// Waits in real time for work the test cannot await directly, such as a schedule going back to sleep after it was
-/// woken. Records an issue instead of hanging when the condition never holds.
 @MainActor
 func waitUntil(
   _ condition: () -> Bool,

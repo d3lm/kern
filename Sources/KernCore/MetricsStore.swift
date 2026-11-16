@@ -1,9 +1,7 @@
 public struct MetricReadings: Sendable {
-  var interval: Duration
-  /// The most recent sample, with or without a value.
+  public internal(set) var interval: Duration
   public private(set) var latest: MetricSample?
   public private(set) var lastSuccessful: MetricSample?
-  /// `nil` for a metric that keeps no history.
   public private(set) var history: SampleHistory?
 
   init(interval: Duration, history: SampleHistory?) {
@@ -11,9 +9,7 @@ public struct MetricReadings: Sendable {
     self.history = history
   }
 
-  /// When the last successful sample stops counting as current: two configured intervals and one second after it was
-  /// acquired. The margin lets one failed or late sample pass without marking the value stale. `nil` when there has
-  /// been no successful sample, so there is no value to go stale.
+  /// The margin lets one failed or late sample pass without marking the value stale.
   public var staleAt: ContinuousClock.Instant? {
     lastSuccessful.map { $0.acquiredAt + interval * 2 + .seconds(1) }
   }
@@ -35,14 +31,12 @@ public struct MetricReadings: Sendable {
   }
 }
 
-/// The latest readings of every metric, read by the UI on the main actor. Only `MetricsCoordinator` writes to it.
 @MainActor
 public final class MetricsStore {
   public struct ObserverID: Hashable, Sendable {
     fileprivate let rawValue: Int
   }
 
-  /// Two minutes at the default CPU and GPU interval.
   public nonisolated static let historyCapacity = 60
 
   private var readings: [Metric: MetricReadings]
@@ -62,7 +56,6 @@ public final class MetricsStore {
     readings[metric]
   }
 
-  /// Calls `observer` once for each new sample, with the metric it belongs to, and at no other time.
   public func observe(_ observer: @escaping @MainActor (Metric) -> Void) -> ObserverID {
     let id = ObserverID(rawValue: nextObserverID)
 

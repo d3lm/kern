@@ -1,19 +1,14 @@
 import Darwin
 
-/// Where `MemoryPressureSensor` gets the share of memory that is still available.
 protocol MemoryAvailabilitySource: Sendable {
-  /// The share of memory available to apps without reclaiming any, in whole percent.
   func availablePercent() throws(SensorError) -> Int
 }
 
-/// Memory pressure, 0–100%: the share of memory that macOS cannot give to an app without first reclaiming it,
-/// by compressing or swapping memory or by evicting cached files.
-///
-/// Used memory stops rising once memory is full, because macOS makes room by compressing and swapping.
-/// Pressure keeps rising and falling with how much work that takes.
 public struct MemoryPressureSensor: MetricSensor {
   public let source = SourceID("memory.memorystatus_level")
   public let quantity = MetricQuantity.memoryPressure
+  public let sourceDescription = "Memory macOS must reclaim before giving it to an app, from kern.memorystatus_level"
+  public let coreKinds: [CoreKind]? = nil
   private let availability: any MemoryAvailabilitySource
 
   public init() {
@@ -24,7 +19,7 @@ public struct MemoryPressureSensor: MetricSensor {
     self.availability = availability
   }
 
-  /// Reads once, so a system without the counter reports the sensor unavailable from the start.
+  /// Reads once so that a system without the sysctl fails to open rather than failing every read.
   public mutating func open() throws(SensorError) {
     _ = try availablePercent()
   }
@@ -46,8 +41,6 @@ public struct MemoryPressureSensor: MetricSensor {
   }
 }
 
-/// `kern.memorystatus_level`, the available share of memory that the `memory_pressure` tool prints as its
-/// System-wide memory free percentage. A public sysctl that needs no privileges.
 struct SysctlMemoryAvailability: MemoryAvailabilitySource {
   func availablePercent() throws(SensorError) -> Int {
     var level: Int32 = 0

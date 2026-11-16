@@ -8,42 +8,70 @@ public struct SourceID: Hashable, Sendable, CustomStringConvertible {
   public var description: String { rawValue }
 }
 
+public struct MetricSource: Equatable, Sendable {
+  public let id: SourceID
+  public let quantity: MetricQuantity
+  public let description: String
+  public let coreKinds: [CoreKind]?
+
+  public init(id: SourceID, quantity: MetricQuantity, description: String, coreKinds: [CoreKind]? = nil) {
+    self.id = id
+    self.quantity = quantity
+    self.description = description
+    self.coreKinds = coreKinds
+  }
+}
+
 public enum MetricUnit: Sendable {
   case percent
   case celsius
 }
 
-/// What a number measures. Two percentages can mean different things, and the UI must label each one by what it is.
 public enum MetricQuantity: Sendable {
-  /// The share of time the hardware was busy doing work.
   case utilization
-  /// The share of time the hardware was powered in an active state. Hardware can be active without doing work, so
-  /// this is never presented as utilization.
   case activeResidency
   case temperature
-  /// The share of installed memory in use by apps and the system, as Activity Monitor counts its Memory Used.
   case memoryUsage
-  /// The share of memory that macOS cannot give to an app without first reclaiming it.
   case memoryPressure
 }
 
 public struct MetricValue: Equatable, Sendable {
   public let value: Double
   public let unit: MetricUnit
+  public let cores: CoreUtilization?
+  public let split: CPUTimeSplit?
 
-  public init(_ value: Double, _ unit: MetricUnit) {
+  public init(_ value: Double, _ unit: MetricUnit, cores: CoreUtilization? = nil, split: CPUTimeSplit? = nil) {
     self.value = value
     self.unit = unit
+    self.cores = cores
+    self.split = split
   }
 }
 
-/// Why a sensor that read its source without error still has no value.
+public struct CPUTimeSplit: Equatable, Sendable {
+  public let user: Double
+  public let system: Double
+
+  public init(user: Double, system: Double) {
+    self.user = user
+    self.system = system
+  }
+}
+
+public struct CoreUtilization: Equatable, Sendable {
+  public let performance: [Double]
+  public let efficiency: [Double]
+
+  public init(performance: [Double], efficiency: [Double]) {
+    self.performance = performance
+    self.efficiency = efficiency
+  }
+}
+
 public enum NoValueReason: Equatable, Sendable {
-  /// The value is a rate between two readings, and there is no earlier reading to compare with yet.
   case awaitingBaseline
-  /// The source's counters have not advanced since the previous reading.
   case countersUnchanged
-  /// A counter is lower than at the previous reading.
   case countersWentBackwards
 }
 
@@ -53,7 +81,6 @@ public enum UnavailableReason: Equatable, Sendable {
   case sensorFailed(SensorError)
 }
 
-/// An unavailable sample has no number, so it cannot be mistaken for a reading of zero.
 public enum SampleState: Equatable, Sendable {
   case valid(MetricValue)
   case unavailable(UnavailableReason)
@@ -62,7 +89,7 @@ public enum SampleState: Equatable, Sendable {
 public struct MetricSample: Equatable, Sendable {
   public let source: SourceID
   public let quantity: MetricQuantity
-  /// Uses a clock that keeps running during system sleep, so a reading taken before sleep is old after wake.
+  /// Must keep running during system sleep, so a reading taken before sleep is stale after wake.
   public let acquiredAt: ContinuousClock.Instant
   public let state: SampleState
 

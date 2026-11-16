@@ -4,16 +4,16 @@ import Testing
 
 @testable import KernCore
 
-/// Logs `open`, `read <seconds>` with the test clock's time, and `close`. Each entry of `whileOpening` runs
-/// during one open and each entry of `whileReading` during one read, in order, which is how a test makes a
-/// provider slow to open or holds a sample in flight.
 struct ClockedSensor: MetricSensor {
   let source = SourceID("test.clocked")
   let quantity = MetricQuantity.utilization
+  let sourceDescription = "The test clock's seconds"
+  let coreKinds: [CoreKind]? = nil
   let log: SensorLog
   let clock: TestClock
   var failure: SensorError?
   var failsToOpen = false
+  var baselineReads = 0
   var whileOpening: [@Sendable () -> Void] = []
   var whileReading: [@Sendable () -> Void] = []
 
@@ -31,6 +31,12 @@ struct ClockedSensor: MetricSensor {
     if !whileReading.isEmpty { whileReading.removeFirst()() }
     if let failure { throw failure }
 
+    if baselineReads > 0 {
+      baselineReads -= 1
+
+      return .noValue(.awaitingBaseline)
+    }
+
     return .value(MetricValue(Double(clock.seconds), .percent))
   }
 
@@ -40,7 +46,6 @@ struct ClockedSensor: MetricSensor {
 }
 
 extension SensorLog {
-  /// The test clock's time, in seconds, at each read.
   var reads: [Int] {
     all.compactMap { $0.hasPrefix("read ") ? Int($0.dropFirst(5)) : nil }
   }
@@ -86,8 +91,8 @@ struct MetricsCoordinatorTests {
     return MetricsCoordinator(providers: Dictionary(uniqueKeysWithValues: providers), clock: clock)
   }
 
-  /// Moves the clock forward one second at a time, letting every schedule take the samples that are due, and come
-  /// back to sleep, before moving on.
+  /// Advances one second at a time and waits for every schedule to sleep again between steps,
+  /// so no schedule wakes late and drops the ticks it missed.
   func run(until seconds: Int, schedules: Int) async {
     await waitUntil { clock.sleeperCount == schedules }
 
@@ -109,6 +114,105 @@ struct MetricsCoordinatorTests {
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.temperature]!.reads == [0, 10, 20])
     #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
+    #expect(logs[.memory]!.all.isEmpty)
+  }
+
+  @Test func sampleThatOnlySetABaselineIsFollowedByTheValueAMomentLater() async {
+    let coordinator = coordinator([.cpu, .temperature]) { metric, sensor in
+      sensor.baselineReads = metric == .cpu ? 1 : 0
+    }
+
+    coordinator.start()
+
+    await waitUntil { clock.sleeperCount == 2 }
+
+    #expect(logs[.cpu]!.reads == [0])
+    #expect(coordinator.store[.cpu]?.lastSuccessful == nil)
+
+    clock.advance(by: MetricsCoordinator<TestClock>.baselineSpan)
+
+    await waitUntil { logs[.cpu]!.reads.count == 2 && clock.sleeperCount == 2 }
+
+    #expect(coordinator.store[.cpu]?.lastSuccessful?.value != nil)
+    #expect(clock.now.offset == .milliseconds(250))
+
+    await run(until: 6, schedules: 2)
+
+    #expect(logs[.cpu]!.reads == [0, 0, 2, 4, 6])
+    #expect(logs[.temperature]!.reads == [0])
+  }
+
+  @Test func metricOnlyTheDetailsShowIsSampledOnlyWhileTheyAreVisible() async {
+    let coordinator = coordinator()
+
+    coordinator.start()
+
+    await run(until: 9, schedules: 4)
+
+    #expect(logs[.memory]!.all.isEmpty)
+
+    coordinator.areDetailsVisible = true
+
+    await run(until: 20, schedules: 5)
+
+    coordinator.areDetailsVisible = false
+
+    await waitUntil { !logs[.memory]!.isOpen }
+    await run(until: 30, schedules: 4)
+
+    #expect(logs[.memory]!.all == ["open", "read 9", "read 14", "read 19", "close"])
+  }
+
+  @Test func showingTheDetailsLeavesEveryOtherScheduleAsItIs() async {
+    let coordinator = coordinator()
+
+    coordinator.start()
+
+    await run(until: 5, schedules: 4)
+
+    coordinator.areDetailsVisible = true
+
+    await run(until: 13, schedules: 5)
+
+    coordinator.areDetailsVisible = false
+
+    await run(until: 20, schedules: 4)
+
+    #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
+    #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
+    #expect(logs[.temperature]!.reads == [0, 10, 20])
+    #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
+
+    for metric in [Metric.cpu, .gpu, .temperature, .memoryPressure] {
+      #expect(logs[metric]!.all.filter { !$0.hasPrefix("read") } == ["open"], "\(metric)")
+    }
+  }
+
+  @Test func visibleDetailsDoNotSampleADisabledMetricOrAStoppedCoordinator() async {
+    let coordinator = coordinator([.cpu, .memory])
+
+    coordinator.areDetailsVisible = true
+
+    await run(until: 3, schedules: 0)
+
+    coordinator.start()
+    coordinator.disable(.memory)
+
+    await run(until: 6, schedules: 1)
+
+    coordinator.enable(.memory)
+
+    await run(until: 8, schedules: 2)
+
+    #expect(logs[.memory]!.reads == [6])
+  }
+
+  @Test func sourceDescribesTheProvidersReadings() {
+    let coordinator = coordinator([.gpu])
+
+    #expect(
+      coordinator.source(of: .gpu)
+        == MetricSource(id: SourceID("test.clocked"), quantity: .utilization, description: "The test clock's seconds"))
   }
 
   @Test func storeHearsOnceForEverySampleTaken() async {
@@ -131,7 +235,7 @@ struct MetricsCoordinatorTests {
 
     let coordinator = coordinator { metric, sensor in
       switch metric {
-      case .cpu, .memoryPressure: break
+      case .cpu, .memory, .memoryPressure: break
       case .gpu: sensor.failure = readFailure
       case .temperature: sensor.failsToOpen = true
       }
@@ -184,8 +288,6 @@ struct MetricsCoordinatorTests {
     #expect(logs[.cpu]!.reads == [0, 8, 10, 12])
   }
 
-  /// The menu bar redraws once for samples that arrive together, so metrics with the same interval must not
-  /// drift apart by however long each provider took to open.
   @Test func metricsStartedTogetherKeepTheSameTicksWhenOneProviderOpensSlowly() async {
     let cpuRead = DispatchSemaphore(value: 0)
 
@@ -297,27 +399,35 @@ struct MetricsCoordinatorTests {
 
     #expect(logs[.cpu]!.reads == [0, 2, 4, 14, 16])
     #expect(logs[.temperature]!.reads == [0, 14])
-    #expect(Metric.allCases.allSatisfy { logs[$0]!.isOpen })
+    #expect(Metric.allCases.allSatisfy { logs[$0]!.isOpen == !$0.isSampledOnlyForDetails })
   }
 
-  @Test func thousandRandomChangesLeaveExactlyOneScheduleForEachEnabledMetric() async {
+  @Test func thousandRandomChangesLeaveExactlyOneScheduleForEachSampledMetric() async {
     let coordinator = coordinator()
     var random = SplitMix64(state: 5)
     var enabled = Set(Metric.allCases)
+    var detailsVisible = false
     var intervals = Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, $0.defaultInterval) })
+
+    var sampled: Set<Metric> {
+      enabled.filter { detailsVisible || !$0.isSampledOnlyForDetails }
+    }
 
     coordinator.start()
 
     for change in 1...1_000 {
       let metric = Metric.allCases.randomElement(using: &random)!
 
-      switch Int.random(in: 0..<3, using: &random) {
+      switch Int.random(in: 0..<4, using: &random) {
       case 0:
         coordinator.enable(metric)
         enabled.insert(metric)
       case 1:
         coordinator.disable(metric)
         enabled.remove(metric)
+      case 2:
+        detailsVisible.toggle()
+        coordinator.areDetailsVisible = detailsVisible
       default:
         let interval = Duration.seconds(Int.random(in: 1...5, using: &random))
 
@@ -326,30 +436,30 @@ struct MetricsCoordinatorTests {
       }
 
       if change.isMultiple(of: 50) {
-        await run(until: clock.seconds + 1, schedules: enabled.count)
+        await run(until: clock.seconds + 1, schedules: sampled.count)
       }
     }
 
-    await run(until: clock.seconds + 1, schedules: enabled.count)
-    await waitUntil { Metric.allCases.allSatisfy { logs[$0]!.isOpen == enabled.contains($0) } }
+    await run(until: clock.seconds + 1, schedules: sampled.count)
+    await waitUntil { Metric.allCases.allSatisfy { logs[$0]!.isOpen == sampled.contains($0) } }
 
     let readsBefore = logs.mapValues(\.reads.count)
     let from = clock.seconds
 
-    await run(until: from + 60, schedules: enabled.count)
+    await run(until: from + 60, schedules: sampled.count)
 
     for metric in Metric.allCases {
       let reads = logs[metric]!.reads.dropFirst(readsBefore[metric]!)
       let interval = Int(intervals[metric]!.components.seconds)
 
-      if enabled.contains(metric) {
+      if sampled.contains(metric) {
         #expect(reads.count == 60 / interval, "\(metric) every \(interval) s")
         #expect(zip(reads, reads.dropFirst()).allSatisfy { $1 - $0 == interval }, "\(metric) every \(interval) s")
       } else {
-        #expect(reads.isEmpty, "\(metric) is disabled")
+        #expect(reads.isEmpty, "\(metric) is not sampled")
       }
     }
 
-    #expect(clock.sleeperCount == enabled.count)
+    #expect(clock.sleeperCount == sampled.count)
   }
 }

@@ -2,7 +2,6 @@ import Testing
 
 @testable import KernCore
 
-/// Replays scripted counter reads in order.
 struct ScriptedResidency: GPUStateResidencySource {
   var reads: [Result<[String: UInt64], SensorError>]
 
@@ -20,7 +19,6 @@ struct ScriptedResidency: GPUStateResidencySource {
   mutating func close() {}
 }
 
-/// Counters for the `OFF` state followed by `P1`, `P2`, … in order.
 func gpu(off: UInt64, _ performanceStates: UInt64...) -> [String: UInt64] {
   var residency = ["OFF": off]
 
@@ -161,7 +159,6 @@ struct GPUSensorTests {
     #expect(await provider.errorState == error)
   }
 
-  /// A state Kern does not know might be an inactive one, and counting it as active would inflate the reading.
   @Test(arguments: ["DOWN", "IDLE", "P", "P1a", "p1"])
   func unfamiliarPowerStateFailsTheRead(state: String) async {
     var residency = gpu(off: 100, 100)

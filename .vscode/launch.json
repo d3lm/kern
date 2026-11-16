@@ -19,6 +19,26 @@
       "target": "kern-probe",
       "configuration": "release",
       "preLaunchTask": "swift: Build Release kern-probe"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:kern}",
+      "name": "Debug kern-popover-bench",
+      "target": "kern-popover-bench",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug kern-popover-bench"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:kern}",
+      "name": "Release kern-popover-bench",
+      "target": "kern-popover-bench",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release kern-popover-bench"
     }
   ]
 }

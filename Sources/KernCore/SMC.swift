@@ -1,6 +1,5 @@
 import IOKit
 
-/// A four-character SMC key such as `Tp01`, packed big-endian into the 32-bit code the SMC uses.
 struct SMCKey: Hashable, Sendable, CustomStringConvertible {
   let code: UInt32
 
@@ -23,19 +22,15 @@ struct SMCKey: Hashable, Sendable, CustomStringConvertible {
   static let keyCount = SMCKey("#KEY")!
 }
 
-/// The size and type the SMC reports for a key. The type is a four-character code too, such as `flt `.
 struct SMCKeyInfo: Equatable, Sendable, CustomStringConvertible {
   let size: UInt32
   let type: SMCKey
 
   var description: String { "\(size)-byte \(type)" }
 
-  /// A 32-bit little-endian float.
   static let float = SMCKeyInfo(size: 4, type: SMCKey("flt ")!)
 }
 
-/// A connection to the `AppleSMC` IOKit user client. The interface is undocumented. Reading keys needs no
-/// privileges, but a sandbox that denies IOKit user clients makes opening fail.
 struct SMCConnection: Sendable {
   private enum Command: UInt8 {
     case readKey = 5
@@ -83,7 +78,6 @@ struct SMCConnection: Sendable {
     return SMCKeyInfo(size: response.dataSize, type: SMCKey(code: response.dataType))
   }
 
-  /// The raw bytes of `key`, exactly `info.size` of them.
   func read(_ key: SMCKey, _ info: SMCKeyInfo) throws(SensorError) -> ArraySlice<UInt8> {
     guard info.size <= SMCParameters.dataCapacity else {
       throw SensorError("SMC key \(key) holds \(info.size) bytes, more than one read returns")
@@ -97,9 +91,8 @@ struct SMCConnection: Sendable {
     return try call(.readKey, request).data.prefix(Int(info.size))
   }
 
-  /// Every key the SMC has, in its own order. Takes one call per key, so it is for validation work only.
   func allKeys() throws(SensorError) -> [SMCKey] {
-    // Big-endian, unlike the little-endian `flt ` values.
+    // big-endian, unlike `flt ` values, which are little-endian
     let count = try read(.keyCount, info(for: .keyCount)).reduce(0) { $0 << 8 | UInt32($1) }
 
     return try (0..<count).map { index throws(SensorError) in
@@ -140,8 +133,7 @@ struct SMCConnection: Sendable {
   }
 }
 
-/// The 80-byte `SMCParamStruct` that every SMC command sends and receives. No public header declares it, so the
-/// fields are read and written at their offsets in its C layout.
+/// No public header declares `SMCParamStruct`, so the size and every field offset must match its C layout exactly.
 private struct SMCParameters {
   static let size = 80
   static let dataCapacity: UInt32 = 32

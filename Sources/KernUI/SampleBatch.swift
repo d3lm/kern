@@ -1,10 +1,7 @@
 import KernCore
 
-/// Collects the metrics that received a sample and delivers them together, `window` after the first of them.
-///
-/// Every redraw of a status item makes the menu bar redraw the whole item again for each other display, so samples
-/// taken at the same tick should be drawn in one pass. They reach the main thread a few milliseconds apart, because
-/// some sensors take longer to read than others.
+/// The menu bar redraws a status item again for every other display after each change, so the samples of one tick,
+/// which reach the main thread milliseconds apart, must be drawn in one pass.
 @MainActor
 final class SampleBatch {
   private let window: Duration

@@ -30,14 +30,36 @@ struct WidgetContentTests {
         sample(.unavailable(.notStarted), at: start + .seconds(4)),
       ])
 
-    #expect(Widget.gpu.content(for: unavailable, at: start + .seconds(4)) == .level(nil, isStale: false))
+    #expect(Widget.gpu.content(for: unavailable, at: start + .seconds(4)) == .level(.unavailable, isStale: false))
+  }
+
+  @Test func gaugeIsMeasuringUntilTheFirstValueAndUnavailableWithoutOneForAnyOtherReason() {
+    let measuring = [[], [sample(.unavailable(.noValue(.awaitingBaseline)))]]
+    let unavailable = [
+      [sample(failed)],
+      [sample(.unavailable(.noValue(.countersUnchanged)))],
+      [sample(.unavailable(.noValue(.awaitingBaseline))), sample(failed, at: start + .seconds(2))],
+    ]
+
+    for samples in measuring {
+      #expect(Widget.gpu.content(for: readings(.gpu, after: samples), at: start) == .level(.measuring, isStale: false))
+    }
+
+    for samples in unavailable {
+      #expect(
+        Widget.gpu.content(for: readings(.gpu, after: samples), at: start) == .level(.unavailable, isStale: false))
+    }
+
+    let restarted = readings(.gpu, after: [sample(value(40)), sample(.unavailable(.noValue(.awaitingBaseline)))])
+
+    #expect(Widget.gpu.content(for: restarted, at: start) == .level(.percent(40), isStale: false))
   }
 
   @Test func gpuIsWholePercent() {
     for (percent, level) in [(0.0, 0), (4.6, 5), (99.5, 100), (100.0, 100)] {
       let readings = readings(.gpu, after: [sample(value(percent))])
 
-      #expect(Widget.gpu.content(for: readings, at: start) == .level(level, isStale: false))
+      #expect(Widget.gpu.content(for: readings, at: start) == .level(.percent(level), isStale: false))
     }
   }
 
@@ -45,16 +67,16 @@ struct WidgetContentTests {
     let pressure = readings(.memoryPressure, interval: .seconds(5), after: [sample(value(62.4))])
     let unavailable = readings(.memoryPressure, interval: .seconds(5), after: [sample(failed)])
 
-    #expect(Widget.memory.content(for: pressure, at: start) == .level(62, isStale: false))
-    #expect(Widget.memory.content(for: pressure, at: start + .seconds(11)) == .level(62, isStale: true))
-    #expect(Widget.memory.content(for: unavailable, at: start) == .level(nil, isStale: false))
+    #expect(Widget.memory.content(for: pressure, at: start) == .level(.percent(62), isStale: false))
+    #expect(Widget.memory.content(for: pressure, at: start + .seconds(11)) == .level(.percent(62), isStale: true))
+    #expect(Widget.memory.content(for: unavailable, at: start) == .level(.unavailable, isStale: false))
   }
 
   @Test func failedSampleKeepsShowingTheLastValueUntilItGoesStale() {
     let readings = readings(.gpu, after: [sample(value(40)), sample(failed, at: start + .seconds(2))])
 
-    #expect(Widget.gpu.content(for: readings, at: start + .seconds(4)) == .level(40, isStale: false))
-    #expect(Widget.gpu.content(for: readings, at: start + .seconds(5)) == .level(40, isStale: true))
+    #expect(Widget.gpu.content(for: readings, at: start + .seconds(4)) == .level(.percent(40), isStale: false))
+    #expect(Widget.gpu.content(for: readings, at: start + .seconds(5)) == .level(.percent(40), isStale: true))
   }
 
   @Test func staleTemperatureKeepsItsValueAndIsMarkedStale() {
@@ -96,7 +118,7 @@ struct WidgetContentTests {
 
   @Test func markingStaleChangesOnlyStaleness() {
     #expect(WidgetContent.reading("47°", isStale: false).markedStale == .reading("47°", isStale: true))
-    #expect(WidgetContent.level(nil, isStale: false).markedStale == .level(nil, isStale: true))
+    #expect(WidgetContent.level(.unavailable, isStale: false).markedStale == .level(.unavailable, isStale: true))
     #expect(WidgetContent.graph([nil, 3], isStale: false).markedStale == .graph([nil, 3], isStale: true))
   }
 }

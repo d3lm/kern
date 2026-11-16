@@ -44,8 +44,8 @@ struct SampleBatchTests {
     #expect(deliveries.all == [[.cpu], [.temperature]])
   }
 
-  /// Samples keep arriving 30 ms apart for 150 ms. A window that restarted with every sample would not close
-  /// until they stopped, and would deliver them all at once.
+  /// Samples arrive 30 ms apart for 150 ms, past the 100 ms window, so a window that restarted with every
+  /// sample would not close until they stopped and would deliver them all at once.
   @Test func windowCountsFromTheFirstSampleSoABatchIsNeverHeldBackLonger() async throws {
     let deliveries = Deliveries()
     let batch = SampleBatch(window: .milliseconds(100)) { deliveries.all.append($0) }

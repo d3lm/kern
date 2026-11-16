@@ -1,10 +1,12 @@
 import Darwin
 import KernCore
-import Synchronization
 import Testing
+import os
 
+/// Not a `Mutex`: Swift 6.1 crashes at `-O` on a test that creates a log holding a `Mutex`
+/// and never uses it, so `swift test -c release` would not build.
 final class SensorLog: Sendable {
-  private let events = Mutex<[String]>([])
+  private let events = OSAllocatedUnfairLock<[String]>(initialState: [])
 
   func record(_ event: String) {
     events.withLock { $0.append(event) }
@@ -13,10 +15,10 @@ final class SensorLog: Sendable {
   var all: [String] { events.withLock { $0 } }
 }
 
-/// Replays scripted results in order. Running out of script means the provider made a call
-/// the test did not expect.
 struct ScriptedSensor: MetricSensor {
   let source = SourceID("test.sensor")
+  let sourceDescription = "Scripted results"
+  let coreKinds: [CoreKind]? = nil
   let log: SensorLog
   var quantity = MetricQuantity.utilization
   var openResults: [Result<Void, SensorError>] = [.success(())]
@@ -52,6 +54,8 @@ struct ScriptedSensor: MetricSensor {
 struct ThreadRecordingSensor: MetricSensor {
   let source = SourceID("test.thread")
   let quantity = MetricQuantity.utilization
+  let sourceDescription = "Records the thread of each call"
+  let coreKinds: [CoreKind]? = nil
   let log: SensorLog
 
   private func record(_ call: String) {

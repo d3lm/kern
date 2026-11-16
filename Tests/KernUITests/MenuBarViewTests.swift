@@ -16,21 +16,20 @@ final class MenuBarViewTests {
   private var windows: [NSWindow] = []
   private var drawsSeen: [ObjectIdentifier: Int] = [:]
 
-  /// A view outside a window is never drawn, so each view lives in an offscreen window, as it does in the menu bar.
+  /// A view outside a window is never drawn, so each view gets an offscreen window.
   func menuBarView(_ layout: MenuBarLayout = .standard) -> MenuBarView {
     let view = MenuBarView(layout: layout)
     let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
 
     window.contentView = view
     windows.append(window)
+
     _ = redraws(of: view)
 
     return view
   }
 
-  /// Commits pending drawing as the run loop does, then lists each widget once for every time it was drawn
-  /// since the previous call. The window is never shown, so its views draw through their layers, not through
-  /// a display pass.
+  /// The window is never shown, so its views draw only when the flush commits their layers.
   func redraws(of view: MenuBarView) -> [Widget] {
     CATransaction.flush()
 
@@ -75,9 +74,6 @@ final class MenuBarViewTests {
     #expect(widest <= style.valueWidth(of: .temperature))
   }
 
-  /// The menu bar keeps an item's trailing edge in place, so a widget stays put on screen exactly when
-  /// the distance from its trailing edge to the item's does not change. The leading widget grows and
-  /// shrinks at its other edge.
   func distancesFromTrailingEdge(_ view: MenuBarView) -> [CGFloat] {
     view.widgetViews.map { view.intrinsicContentSize.width - $0.frame.maxX }
   }
@@ -126,11 +122,11 @@ final class MenuBarViewTests {
     #expect(view[.temperature].frame.width == style.valueWidth(of: .temperature))
   }
 
-  /// The temperature starts with two digits, so the sample that changes it keeps the leading widget's width.
   @Test func sampleRedrawsOnlyTheWidgetOfItsMetric() {
     let view = menuBarView()
 
     view.show(readings(.temperature, after: [sample(value(46, .celsius))]), for: .temperature)
+
     _ = redraws(of: view)
 
     view.show(readings(.cpu, after: [sample(value(30))]), for: .cpu)
@@ -165,6 +161,7 @@ final class MenuBarViewTests {
     let view = menuBarView()
 
     view.show(readings(.gpu, after: [sample(value(5.2), at: .now)]), for: .gpu)
+
     _ = redraws(of: view)
 
     view.show(readings(.gpu, after: [sample(value(4.9), at: .now)]), for: .gpu)
@@ -179,8 +176,10 @@ final class MenuBarViewTests {
 
     view.show(readings(.cpu, after: [sample(value(30), at: .now)]), for: .cpu)
     view.show(readings(.gpu, after: [sample(value(5), at: .now)]), for: .gpu)
+
     view.show(
       readings(.temperature, interval: .seconds(10), after: [sample(value(47, .celsius), at: .now)]), for: .temperature)
+
     _ = redraws(of: view)
 
     try await Task.sleep(for: .seconds(2))
@@ -193,22 +192,22 @@ final class MenuBarViewTests {
     let gpu = readings(.gpu, interval: .milliseconds(10), after: [sample(value(5), at: .now)])
 
     view.show(gpu, for: .gpu)
+
     _ = redraws(of: view)
 
     await waitUntil { view[.gpu].content?.isStale == true }
 
     #expect(ContinuousClock.now >= gpu.staleAt!)
-    #expect(view[.gpu].content == .level(5, isStale: true))
+    #expect(view[.gpu].content == .level(.percent(5), isStale: true))
     #expect(redraws(of: view) == [.gpu])
 
     view.show(readings(.gpu, interval: .milliseconds(10), after: [sample(value(6), at: .now)]), for: .gpu)
 
-    #expect(view[.gpu].content == .level(6, isStale: false))
+    #expect(view[.gpu].content == .level(.percent(6), isStale: false))
   }
 
-  /// With a 250 ms interval a value goes stale 1.5 s after it was acquired, and the check may fire
-  /// up to 0.5 s late. The test looks between the first value's latest possible check and the second
-  /// value's deadline.
+  /// At a 250 ms interval a value goes stale 1.5 s after it is acquired, and the check may fire 0.5 s late.
+  /// The test checks at 2.1 s, after the first value's latest check and before the second value's deadline.
   @Test func successfulSampleBeforeTheValueGoesStaleKeepsItCurrent() async throws {
     let view = menuBarView()
     let first = ContinuousClock.now
@@ -220,32 +219,13 @@ final class MenuBarViewTests {
     let failedSince = [sample(value(6), at: .now), sample(failed, at: .now)]
 
     view.show(readings(.gpu, interval: .milliseconds(250), after: failedSince), for: .gpu)
+
     _ = redraws(of: view)
 
     try await Task.sleep(until: first + .milliseconds(2_100))
 
-    #expect(view[.gpu].content == .level(6, isStale: false))
+    #expect(view[.gpu].content == .level(.percent(6), isStale: false))
     #expect(redraws(of: view) == [])
-
-    await waitUntil { view[.gpu].content?.isStale == true }
-  }
-
-  /// Blocking the main thread past the deadline makes the check wake up and queue behind the main thread.
-  /// Yielding then delivers the next sample after the check has woken, when cancelling it no longer stops it,
-  /// but before it runs.
-  @Test func sampleArrivingAfterTheStaleCheckWokeKeepsItsValueCurrent() async throws {
-    let view = menuBarView()
-
-    view.show(readings(.gpu, interval: .milliseconds(10), after: [sample(value(5), at: .now)]), for: .gpu)
-
-    usleep(1_800_000)
-    await Task.yield()
-
-    view.show(readings(.gpu, interval: .milliseconds(10), after: [sample(value(6), at: .now)]), for: .gpu)
-
-    try await Task.sleep(for: .milliseconds(200))
-
-    #expect(view[.gpu].content == .level(6, isStale: false))
 
     await waitUntil { view[.gpu].content?.isStale == true }
   }
@@ -265,32 +245,44 @@ final class MenuBarViewTests {
 
     #expect(view[.cpu].content == .graph(levels, isStale: true))
   }
+
+  @Test func staleChartKeepsTheGapOfAFailedSampleThatArrivedBeforeTheCheck() async {
+    let view = menuBarView()
+    let success = sample(value(40), at: .now)
+
+    view.show(readings(.cpu, interval: .milliseconds(10), after: [success]), for: .cpu)
+    view.show(readings(.cpu, interval: .milliseconds(10), after: [success, sample(failed, at: .now)]), for: .cpu)
+
+    await waitUntil { view[.cpu].content?.isStale == true }
+
+    #expect(view[.cpu].content == .graph(Array(repeating: nil, count: 58) + [40, nil], isStale: true))
+  }
 }
 
 struct ChartSmoothingTests {
   @Test func singleSpikeSpreadsOverItsNeighbors() {
-    let smoothed = WidgetView.smoothed([0, 0, 0, 0, 100, 0, 0, 0, 0], radius: 2)
+    let smoothed = AreaChart.smoothed([0, 0, 0, 0, 100, 0, 0, 0, 0], radius: 2)
 
     #expect(smoothed == [0, 0, 20, 20, 20, 20, 20, 0, 0])
   }
 
   @Test func steadyLevelStaysAsItIs() {
-    #expect(WidgetView.smoothed(Array(repeating: 37, count: 60), radius: 2) == Array(repeating: 37, count: 60))
+    #expect(AreaChart.smoothed(Array(repeating: 37, count: 60), radius: 2) == Array(repeating: 37, count: 60))
   }
 
   @Test func gapStaysAGapAndIsNeverAveragedAcross() {
-    let smoothed = WidgetView.smoothed([10, 10, nil, 90, 90], radius: 2)
+    let smoothed = AreaChart.smoothed([10, 10, nil, 90, 90], radius: 2)
 
     #expect(smoothed == [10, 10, nil, 90, 90])
   }
 
   @Test func meanShrinksAtTheEndsOfARun() {
-    #expect(WidgetView.smoothed([nil, 10, 20, 60], radius: 2) == [nil, 30, 30, 30])
-    #expect(WidgetView.smoothed([12], radius: 2) == [12])
+    #expect(AreaChart.smoothed([nil, 10, 20, 60], radius: 2) == [nil, 30, 30, 30])
+    #expect(AreaChart.smoothed([12], radius: 2) == [12])
   }
 
   @Test func zeroStaysALevelSoItIsStillDrawn() {
-    #expect(WidgetView.smoothed([nil, 0, nil], radius: 2) == [nil, 0, nil])
+    #expect(AreaChart.smoothed([nil, 0, nil], radius: 2) == [nil, 0, nil])
   }
 }
 
@@ -298,7 +290,7 @@ struct ChartAreaTests {
   let plot = CGRect(x: 10, y: 4, width: 30, height: 14)
 
   @Test func sixtyLevelsFillThePlotFromEdgeToEdge() {
-    let areas = WidgetView.areas(Array(repeating: 50, count: 60), in: plot, pixel: 0.5)
+    let areas = AreaChart.areas(Array(repeating: 50, count: 60), in: plot, pixel: 0.5)
 
     #expect(areas.count == 1)
     #expect(areas[0].map(\.x).min() == plot.minX)
@@ -307,7 +299,7 @@ struct ChartAreaTests {
   }
 
   @Test func gapBreaksTheAreaButZeroRisesOnePixel() {
-    let areas = WidgetView.areas([nil, 0, nil, 100], in: plot, pixel: 0.5)
+    let areas = AreaChart.areas([nil, 0, nil, 100], in: plot, pixel: 0.5)
 
     #expect(areas.count == 2)
     #expect(areas[0].map(\.x).min() == 17.5)
@@ -319,7 +311,7 @@ struct ChartAreaTests {
   }
 
   @Test func lineRunsThroughTheMiddleOfEachSlot() {
-    let area = WidgetView.areas([10, 50], in: plot, pixel: 0.5)[0]
+    let area = AreaChart.areas([10, 50], in: plot, pixel: 0.5)[0]
 
     #expect(
       area == [

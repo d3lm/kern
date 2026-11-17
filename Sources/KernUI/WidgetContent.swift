@@ -20,14 +20,6 @@ enum WidgetContent: Equatable, CustomStringConvertible {
     }
   }
 
-  var markedStale: WidgetContent {
-    switch self {
-    case .reading(let text, _): .reading(text, isStale: true)
-    case .level(let level, _): .level(level, isStale: true)
-    case .graph(let levels, _): .graph(levels, isStale: true)
-    }
-  }
-
   var description: String {
     let stale = isStale ? ", stale" : ""
 

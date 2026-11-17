@@ -103,7 +103,7 @@ struct AppearanceTests {
 
   @Test func unavailableGaugeShowsADashAndZeroFillsOnlyTheBottom() {
     let unavailable = menuBarView(.vibrantDark, gpu: [sample(failed)])
-    let zero = menuBarView(.vibrantDark, gpu: [sample(value(0))])
+    let zero = menuBarView(.vibrantDark, gpu: [sample(value(0), at: .now)])
     let gauge = valueFrame(of: .gpu, in: unavailable)
     let middle = NSRect(x: gauge.minX + style.gaugeWidth / 2 - 0.5, y: gauge.midY - 0.25, width: 1, height: 0.5)
     let bottom = NSRect(x: gauge.minX + style.gaugeWidth / 2 - 0.5, y: gauge.minY, width: 1, height: 0.5)

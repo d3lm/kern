@@ -9,12 +9,17 @@ final class WidgetView: NSView {
   let widestWidth: CGFloat
   private(set) var contentWidth: CGFloat
   var onContentWidthChange: () -> Void = {}
+
+  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale. The store
+  /// counts staleness with the interval in force then, which the readings shown earlier cannot know.
+  var onStaleDeadline: () -> Void = {}
+
   private let style: MenuBarStyle
   private let labelLetters: [TextLine]
   private let valueOffset: CGFloat
   private(set) var content: WidgetContent?
   private var valueText: TextLine?
-  private lazy var staleCheck = StaleCheck { [weak self] in self?.markStale() }
+  private lazy var staleCheck = StaleCheck { [weak self] in self?.onStaleDeadline() }
   private(set) var drawCount = 0
 
   init(widget: Widget, label: String?, style: MenuBarStyle) {
@@ -39,12 +44,6 @@ final class WidgetView: NSView {
     render(content)
 
     staleCheck.schedule(at: content.isStale ? nil : readings.staleAt)
-  }
-
-  private func markStale() {
-    if let content {
-      render(content.markedStale)
-    }
   }
 
   private func render(_ content: WidgetContent) {

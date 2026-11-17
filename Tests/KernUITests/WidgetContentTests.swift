@@ -116,9 +116,22 @@ struct WidgetContentTests {
     #expect(content == .graph((40..<100).map(Double.init), isStale: false))
   }
 
-  @Test func markingStaleChangesOnlyStaleness() {
-    #expect(WidgetContent.reading("47°", isStale: false).markedStale == .reading("47°", isStale: true))
-    #expect(WidgetContent.level(.unavailable, isStale: false).markedStale == .level(.unavailable, isStale: true))
-    #expect(WidgetContent.graph([nil, 3], isStale: false).markedStale == .graph([nil, 3], isStale: true))
+  @Test func readingsAtTheirStaleDeadlineChangeOnlyTheStaleness() throws {
+    let levels = Array(repeating: nil, count: 59) + [47.0]
+
+    let contents: [(Widget, MetricUnit, (Bool) -> WidgetContent)] = [
+      (.temperature, .celsius, { .reading("47°", isStale: $0) }),
+      (.gpu, .percent, { .level(.percent(47), isStale: $0) }),
+      (.memory, .percent, { .level(.percent(47), isStale: $0) }),
+      (.cpu, .percent, { .graph(levels, isStale: $0) }),
+    ]
+
+    for (widget, unit, content) in contents {
+      let readings = readings(widget.metric, after: [sample(value(47, unit), at: start)])
+      let deadline = try #require(readings.staleAt)
+
+      #expect(widget.content(for: readings, at: deadline - .nanoseconds(1)) == content(false), "\(widget)")
+      #expect(widget.content(for: readings, at: deadline) == content(true), "\(widget)")
+    }
   }
 }

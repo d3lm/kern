@@ -23,6 +23,11 @@ let usage = """
     disable <metric>
     interval <metric> <seconds>
     details on|off       Sample as the app does with its detail popover open or closed
+    sleep                Suspend sampling as the app does when the system announces sleep
+    wake                 Resume sampling as the app does when the system wakes
+    low-power on|off     Sample as the app does while Low Power Mode is on or off
+    low-power-behavior adaptive|override
+                         Slow down in Low Power Mode, or keep the configured intervals
 
     <metric> is cpu, gpu, temperature, memory, or memory-pressure
   """
@@ -144,6 +149,24 @@ func apply(_ command: String, to coordinator: MetricsCoordinator<ContinuousClock
   case ["details", "off"]:
     coordinator.areDetailsVisible = false
     return "details hidden"
+  case ["sleep"]:
+    coordinator.powerState.isAsleep = true
+    return "asleep"
+  case ["wake"]:
+    coordinator.powerState.isAsleep = false
+    return "awake"
+  case ["low-power", "on"]:
+    coordinator.powerState.isLowPowerModeEnabled = true
+    return "low power mode on"
+  case ["low-power", "off"]:
+    coordinator.powerState.isLowPowerModeEnabled = false
+    return "low power mode off"
+  case ["low-power-behavior", "adaptive"]:
+    coordinator.lowPowerModeBehavior = .adaptive
+    return "low power mode behavior adaptive"
+  case ["low-power-behavior", "override"]:
+    coordinator.lowPowerModeBehavior = .override
+    return "low power mode behavior override"
   default:
     break
   }

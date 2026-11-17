@@ -3,6 +3,10 @@ import KernCore
 
 final class MenuBarView: NSView {
   let widgetViews: [WidgetView]
+
+  /// Asks the owner to show a metric again, which each widget does at its `onStaleDeadline`.
+  var onStaleDeadline: (Metric) -> Void = { _ in }
+
   private let spacing: CGFloat
   private let height: CGFloat
 
@@ -18,6 +22,7 @@ final class MenuBarView: NSView {
     for view in widgetViews {
       addSubview(view)
       view.onContentWidthChange = { [weak self] in self?.widthsChanged() }
+      view.onStaleDeadline = { [weak self, metric = view.widget.metric] in self?.onStaleDeadline(metric) }
     }
 
     setFrameSize(intrinsicContentSize)

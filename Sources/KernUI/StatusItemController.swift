@@ -62,6 +62,8 @@ final class StatusItemController: NSObject {
       show(metric)
     }
 
+    menuBarView.onStaleDeadline = { [weak self] metric in self?.show(metric) }
+
     let batch = SampleBatch(window: Self.batchWindow) { [weak self] metrics in
       for metric in metrics {
         self?.show(metric)

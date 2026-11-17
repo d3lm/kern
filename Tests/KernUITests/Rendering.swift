@@ -1,21 +1,22 @@
 import AppKit
 import Testing
 
+/// Gives up after 600 checks, which take a few seconds while the main thread is free. The wait counts checks,
+/// not seconds, because every main-actor test shares the main thread, and while other tests keep it busy the
+/// condition can neither become true nor be checked.
 @MainActor
 func waitUntil(
-  timeout: Duration = .seconds(3),
   _ condition: () -> Bool,
   sourceLocation: SourceLocation = #_sourceLocation
 ) async {
-  let deadline = ContinuousClock.now + timeout
-
-  while !condition() {
-    guard ContinuousClock.now < deadline else {
-      Issue.record("condition still false after \(timeout)", sourceLocation: sourceLocation)
-      return
-    }
+  for _ in 0..<600 {
+    if condition() { return }
 
     try? await Task.sleep(for: .milliseconds(5))
+  }
+
+  if !condition() {
+    Issue.record("condition still false after 600 checks", sourceLocation: sourceLocation)
   }
 }
 

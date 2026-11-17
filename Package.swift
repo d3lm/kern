@@ -13,6 +13,7 @@ let package = Package(
     .target(name: "KernUI", dependencies: ["KernCore"]),
     .executableTarget(name: "kern-probe", dependencies: ["KernCore"]),
     .executableTarget(name: "kern-popover-bench", dependencies: ["KernUI"]),
+    .executableTarget(name: "kern-power-bench", dependencies: ["KernUI"]),
     .testTarget(name: "KernCoreTests", dependencies: ["KernCore"]),
     .testTarget(name: "KernUITests", dependencies: ["KernUI", "KernCore"]),
   ]

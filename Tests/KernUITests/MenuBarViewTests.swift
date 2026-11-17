@@ -1,7 +1,7 @@
 import AppKit
-import KernCore
 import Testing
 
+@testable import KernCore
 @testable import KernUI
 
 extension MenuBarView {
@@ -41,6 +41,16 @@ final class MenuBarViewTests {
 
       return Array(repeating: widgetView.widget, count: draws)
     }
+  }
+
+  /// Shows the store's readings as `StatusItemController` does, when told to and again each time a widget asks
+  /// at its stale deadline.
+  func show(_ metric: Metric, from store: MetricsStore, in view: MenuBarView) {
+    view.onStaleDeadline = { [weak view] metric in
+      if let readings = store[metric] { view?.show(readings, for: metric) }
+    }
+
+    if let readings = store[metric] { view.show(readings, for: metric) }
   }
 
   @Test func widgetsAppearInTheConfiguredOrderWithoutOverlapping() {
@@ -187,21 +197,23 @@ final class MenuBarViewTests {
     #expect(redraws(of: view) == [])
   }
 
-  @Test func valueRedrawsOnceAsStaleWhenNoSuccessfulSampleFollows() async {
+  @Test func valueRedrawsOnceAsStaleWhenNoSuccessfulSampleFollows() async throws {
     let view = menuBarView()
-    let gpu = readings(.gpu, interval: .milliseconds(10), after: [sample(value(5), at: .now)])
+    let store = MetricsStore(intervals: [.gpu: .milliseconds(10)])
 
-    view.show(gpu, for: .gpu)
+    store.record(sample(value(5), at: .now), for: .gpu)
+    show(.gpu, from: store, in: view)
 
     _ = redraws(of: view)
 
     await waitUntil { view[.gpu].content?.isStale == true }
 
-    #expect(ContinuousClock.now >= gpu.staleAt!)
+    #expect(ContinuousClock.now >= (try #require(store[.gpu]?.staleAt)))
     #expect(view[.gpu].content == .level(.percent(5), isStale: true))
     #expect(redraws(of: view) == [.gpu])
 
-    view.show(readings(.gpu, interval: .milliseconds(10), after: [sample(value(6), at: .now)]), for: .gpu)
+    store.record(sample(value(6), at: .now), for: .gpu)
+    show(.gpu, from: store, in: view)
 
     #expect(view[.gpu].content == .level(.percent(6), isStale: false))
   }
@@ -210,15 +222,17 @@ final class MenuBarViewTests {
   /// The test checks at 2.1 s, after the first value's latest check and before the second value's deadline.
   @Test func successfulSampleBeforeTheValueGoesStaleKeepsItCurrent() async throws {
     let view = menuBarView()
+    let store = MetricsStore(intervals: [.gpu: .milliseconds(250)])
     let first = ContinuousClock.now
 
-    view.show(readings(.gpu, interval: .milliseconds(250), after: [sample(value(5), at: first)]), for: .gpu)
+    store.record(sample(value(5), at: first), for: .gpu)
+    show(.gpu, from: store, in: view)
 
     try await Task.sleep(until: first + .seconds(1))
 
-    let failedSince = [sample(value(6), at: .now), sample(failed, at: .now)]
-
-    view.show(readings(.gpu, interval: .milliseconds(250), after: failedSince), for: .gpu)
+    store.record(sample(value(6), at: .now), for: .gpu)
+    store.record(sample(failed, at: .now), for: .gpu)
+    show(.gpu, from: store, in: view)
 
     _ = redraws(of: view)
 
@@ -230,11 +244,33 @@ final class MenuBarViewTests {
     await waitUntil { view[.gpu].content?.isStale == true }
   }
 
+  /// At a 10 ms interval the value would go stale 1.02 s after it is acquired. At the 600 ms interval set
+  /// meanwhile it goes stale after 2.2 s. The test never looks at a fixed time in between, because a busy
+  /// main thread can make it look late.
+  @Test func valueWhoseIntervalWasLengthenedGoesStaleAtItsNewDeadlineNotAtItsOldOne() async throws {
+    let view = menuBarView()
+    let store = MetricsStore(intervals: [.gpu: .milliseconds(10)])
+    let acquired = ContinuousClock.now
+
+    store.record(sample(value(5), at: acquired), for: .gpu)
+    show(.gpu, from: store, in: view)
+    store.setInterval(.milliseconds(600), for: .gpu)
+
+    _ = redraws(of: view)
+
+    await waitUntil { view[.gpu].content?.isStale == true }
+
+    #expect(ContinuousClock.now >= acquired + .milliseconds(2_200))
+    #expect(view[.gpu].content == .level(.percent(5), isStale: true))
+    #expect(redraws(of: view) == [.gpu])
+  }
+
   @Test func staleCPUChartRedrawsWithTheSameLevels() async {
     let view = menuBarView()
-    let cpu = readings(.cpu, interval: .milliseconds(10), after: [sample(value(40), at: .now)])
+    let store = MetricsStore(intervals: [.cpu: .milliseconds(10)])
 
-    view.show(cpu, for: .cpu)
+    store.record(sample(value(40), at: .now), for: .cpu)
+    show(.cpu, from: store, in: view)
 
     guard case .graph(let levels, isStale: false) = view[.cpu].content else {
       Issue.record("the CPU widget shows a current chart")
@@ -248,10 +284,12 @@ final class MenuBarViewTests {
 
   @Test func staleChartKeepsTheGapOfAFailedSampleThatArrivedBeforeTheCheck() async {
     let view = menuBarView()
-    let success = sample(value(40), at: .now)
+    let store = MetricsStore(intervals: [.cpu: .milliseconds(10)])
 
-    view.show(readings(.cpu, interval: .milliseconds(10), after: [success]), for: .cpu)
-    view.show(readings(.cpu, interval: .milliseconds(10), after: [success, sample(failed, at: .now)]), for: .cpu)
+    store.record(sample(value(40), at: .now), for: .cpu)
+    show(.cpu, from: store, in: view)
+    store.record(sample(failed, at: .now), for: .cpu)
+    show(.cpu, from: store, in: view)
 
     await waitUntil { view[.cpu].content?.isStale == true }
 

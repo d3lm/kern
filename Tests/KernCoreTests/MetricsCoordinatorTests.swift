@@ -13,29 +13,37 @@ struct ClockedSensor: MetricSensor {
   let clock: TestClock
   var failure: SensorError?
   var failsToOpen = false
+  /// The second of the test clock from which opening and reading no longer fail.
+  var recoversAt: Int?
+  /// The number of reads after each opening that only set a baseline, as the first read of a rate does.
   var baselineReads = 0
+  var readsSinceOpening = 0
   var whileOpening: [@Sendable () -> Void] = []
   var whileReading: [@Sendable () -> Void] = []
+
+  private var hasRecovered: Bool {
+    recoversAt.map { clock.seconds >= $0 } ?? false
+  }
 
   mutating func open() throws(SensorError) {
     log.record("open")
 
     if !whileOpening.isEmpty { whileOpening.removeFirst()() }
 
-    if failsToOpen { throw SensorError("cannot open") }
+    if failsToOpen && !hasRecovered { throw SensorError("cannot open") }
+
+    readsSinceOpening = 0
   }
 
   mutating func read() throws(SensorError) -> SensorReading {
     log.record("read \(clock.seconds)")
 
     if !whileReading.isEmpty { whileReading.removeFirst()() }
-    if let failure { throw failure }
+    if let failure, !hasRecovered { throw failure }
 
-    if baselineReads > 0 {
-      baselineReads -= 1
+    readsSinceOpening += 1
 
-      return .noValue(.awaitingBaseline)
-    }
+    if readsSinceOpening <= baselineReads { return .noValue(.awaitingBaseline) }
 
     return .value(MetricValue(Double(clock.seconds), .percent))
   }
@@ -48,6 +56,14 @@ struct ClockedSensor: MetricSensor {
 extension SensorLog {
   var reads: [Int] {
     all.compactMap { $0.hasPrefix("read ") ? Int($0.dropFirst(5)) : nil }
+  }
+
+  var opens: Int {
+    all.count { $0 == "open" }
+  }
+
+  var closes: Int {
+    all.count { $0 == "close" }
   }
 
   var isOpen: Bool {
@@ -140,6 +156,28 @@ struct MetricsCoordinatorTests {
 
     #expect(logs[.cpu]!.reads == [0, 0, 2, 4, 6])
     #expect(logs[.temperature]!.reads == [0])
+  }
+
+  @Test func intervalChangedWhileAValueIsAwaitedStillReadsItAMomentLater() async {
+    let coordinator = coordinator([.cpu]) { _, sensor in sensor.baselineReads = 1 }
+
+    coordinator.start()
+
+    await waitUntil { logs[.cpu]!.reads == [0] && clock.sleeperCount == 1 }
+
+    coordinator.setInterval(.seconds(5), for: .cpu)
+
+    await waitUntil { clock.sleeperCount == 1 }
+
+    clock.advance(by: MetricsCoordinator<TestClock>.baselineSpan)
+
+    await waitUntil { logs[.cpu]!.reads == [0, 0] && clock.sleeperCount == 1 }
+
+    #expect(coordinator.store[.cpu]?.latest?.value == MetricValue(0, .percent))
+
+    await run(until: 10, schedules: 1)
+
+    #expect(logs[.cpu]!.reads == [0, 0, 5, 10])
   }
 
   @Test func metricOnlyTheDetailsShowIsSampledOnlyWhileTheyAreVisible() async {
@@ -246,14 +284,15 @@ struct MetricsCoordinatorTests {
     await run(until: 20, schedules: 4)
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
-    #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
+    #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
+    #expect(logs[.gpu]!.reads == [0, 2, 6, 14])
     #expect(coordinator.store[.gpu]?.latest?.state == .unavailable(.sensorFailed(readFailure)))
-    #expect(coordinator.store[.gpu]?.history?.count == 11)
+    #expect(coordinator.store[.gpu]?.history?.count == 4)
 
     let temperature = coordinator.store[.temperature]?.latest
 
     #expect(temperature?.state == .unavailable(.sensorFailed(SensorError("cannot open"))))
-    #expect(logs[.temperature]!.reads.isEmpty)
+    #expect(logs[.temperature]!.all == ["open", "open"])
   }
 
   @Test func providerWorkNeverRunsOnTheMainThread() async {
@@ -408,17 +447,48 @@ struct MetricsCoordinatorTests {
     var enabled = Set(Metric.allCases)
     var detailsVisible = false
     var intervals = Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, $0.defaultInterval) })
+    var power = PowerState()
+    var behavior = LowPowerModeBehavior.adaptive
 
     var sampled: Set<Metric> {
-      enabled.filter { detailsVisible || !$0.isSampledOnlyForDetails }
+      power.isAsleep ? [] : enabled.filter { detailsVisible || !$0.isSampledOnlyForDetails }
+    }
+
+    func intervalInForce(for metric: Metric) -> Duration {
+      let configured = intervals[metric]!
+
+      guard power.isLowPowerModeEnabled, behavior == .adaptive else { return configured }
+
+      return max(configured, metric.lowPowerInterval)
+    }
+
+    var scheduled: Set<Metric> = []
+    var opens: [Metric: Int] = [:]
+    var closes: [Metric: Int] = [:]
+
+    func countSchedules() {
+      for metric in sampled.subtracting(scheduled) { opens[metric, default: 0] += 1 }
+      for metric in scheduled.subtracting(sampled) { closes[metric, default: 0] += 1 }
+
+      scheduled = sampled
+    }
+
+    /// A schedule that begins opens its sensor once and one that ends closes it once, so the counts tell when
+    /// every change made so far has been carried out. The last event of each sensor does not, because it is
+    /// also `close` between two changes that are still waiting.
+    func isEveryChangeCarriedOut() -> Bool {
+      Metric.allCases.allSatisfy { metric in
+        logs[metric]!.opens == opens[metric, default: 0] && logs[metric]!.closes == closes[metric, default: 0]
+      }
     }
 
     coordinator.start()
+    countSchedules()
 
     for change in 1...1_000 {
       let metric = Metric.allCases.randomElement(using: &random)!
 
-      switch Int.random(in: 0..<4, using: &random) {
+      switch Int.random(in: 0..<7, using: &random) {
       case 0:
         coordinator.enable(metric)
         enabled.insert(metric)
@@ -428,6 +498,15 @@ struct MetricsCoordinatorTests {
       case 2:
         detailsVisible.toggle()
         coordinator.areDetailsVisible = detailsVisible
+      case 3:
+        power.isAsleep.toggle()
+        coordinator.powerState = power
+      case 4:
+        power.isLowPowerModeEnabled.toggle()
+        coordinator.powerState = power
+      case 5:
+        behavior = behavior == .adaptive ? .override : .adaptive
+        coordinator.lowPowerModeBehavior = behavior
       default:
         let interval = Duration.seconds(Int.random(in: 1...5, using: &random))
 
@@ -435,13 +514,32 @@ struct MetricsCoordinatorTests {
         intervals[metric] = interval
       }
 
+      countSchedules()
+
       if change.isMultiple(of: 50) {
+        await waitUntil { isEveryChangeCarriedOut() }
         await run(until: clock.seconds + 1, schedules: sampled.count)
       }
     }
 
+    power.isAsleep = true
+    coordinator.powerState = power
+    countSchedules()
+
+    await waitUntil { isEveryChangeCarriedOut() }
+
+    let eventsAsleep = logs.mapValues(\.all)
+
+    await run(until: clock.seconds + 30, schedules: 0)
+
+    #expect(logs.mapValues(\.all) == eventsAsleep)
+
+    power.isAsleep = false
+    coordinator.powerState = power
+    countSchedules()
+
+    await waitUntil { isEveryChangeCarriedOut() }
     await run(until: clock.seconds + 1, schedules: sampled.count)
-    await waitUntil { Metric.allCases.allSatisfy { logs[$0]!.isOpen == sampled.contains($0) } }
 
     let readsBefore = logs.mapValues(\.reads.count)
     let from = clock.seconds
@@ -450,7 +548,9 @@ struct MetricsCoordinatorTests {
 
     for metric in Metric.allCases {
       let reads = logs[metric]!.reads.dropFirst(readsBefore[metric]!)
-      let interval = Int(intervals[metric]!.components.seconds)
+      let interval = Int(intervalInForce(for: metric).components.seconds)
+
+      #expect(coordinator.store[metric]?.interval == intervalInForce(for: metric), "\(metric)")
 
       if sampled.contains(metric) {
         #expect(reads.count == 60 / interval, "\(metric) every \(interval) s")

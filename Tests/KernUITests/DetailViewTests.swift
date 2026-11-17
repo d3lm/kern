@@ -1,7 +1,7 @@
 import AppKit
-import KernCore
 import Testing
 
+@testable import KernCore
 @testable import KernUI
 
 let sources: [Metric: MetricSource] = [
@@ -420,10 +420,18 @@ final class DetailViewTests {
 
   @Test func valueGoesStaleOnTimeWithoutANewSample() async {
     let view = detailView()
+    let store = MetricsStore(intervals: [.gpu: .milliseconds(10)])
     var changes = 0
 
     view[.gpu].changed = { changes += 1 }
-    view.show(readings(.gpu, interval: .milliseconds(10), after: [sample(value(5), at: .now)]), for: .gpu)
+
+    // as `DetailPopover` answers a section that asks at its stale deadline
+    view.onStaleDeadline = { [weak view] metric in
+      if let readings = store[metric] { view?.show(readings, for: metric) }
+    }
+
+    store.record(sample(value(5), at: .now), for: .gpu)
+    view.show(store[.gpu]!, for: .gpu)
 
     #expect(view[.gpu].value?.content?.isStale == false)
     #expect(changes == 1)

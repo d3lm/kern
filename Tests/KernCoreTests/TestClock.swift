@@ -79,19 +79,21 @@ final class TestClock: Clock, Sendable {
   }
 }
 
+/// Gives up after 2,500 checks, which take a few seconds while the main thread is free. The wait counts
+/// checks, not seconds, because every main-actor test shares the main thread, and while other tests keep
+/// it busy the condition can neither become true nor be checked.
 @MainActor
 func waitUntil(
   _ condition: () -> Bool,
   sourceLocation: SourceLocation = #_sourceLocation
 ) async {
-  let deadline = ContinuousClock.now + .seconds(5)
-
-  while !condition() {
-    guard ContinuousClock.now < deadline else {
-      Issue.record("condition still false after 5 seconds", sourceLocation: sourceLocation)
-      return
-    }
+  for _ in 0..<2_500 {
+    if condition() { return }
 
     try? await Task.sleep(for: .milliseconds(1))
+  }
+
+  if !condition() {
+    Issue.record("condition still false after 2,500 checks", sourceLocation: sourceLocation)
   }
 }

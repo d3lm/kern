@@ -13,6 +13,14 @@ public enum Metric: String, CaseIterable, Sendable {
     }
   }
 
+  public var lowPowerInterval: Duration {
+    switch self {
+    case .cpu, .gpu: .seconds(5)
+    case .temperature: .seconds(20)
+    case .memory, .memoryPressure: .seconds(10)
+    }
+  }
+
   var keepsHistory: Bool {
     switch self {
     case .cpu, .gpu, .temperature, .memoryPressure: true

@@ -11,6 +11,10 @@ final class DetailView: NSView {
   let settingsButton: FooterButton
   let quitButton: FooterButton
   var fittingSizeChanged: () -> Void = {}
+
+  /// Asks the owner to show a metric again, which each section does at its `onStaleDeadline`.
+  var onStaleDeadline: (Metric) -> Void = { _ in }
+
   private let style: DetailStyle
   private var size = NSSize.zero
 
@@ -50,6 +54,7 @@ final class DetailView: NSView {
 
     for section in sections {
       section.changed = { [weak self] in self?.arrange() }
+      section.onStaleDeadline = { [weak self, metric = section.metric] in self?.onStaleDeadline(metric) }
     }
 
     arrange()
@@ -122,10 +127,14 @@ final class DetailSection {
   let info: String?
   let lines: [DetailLine]
   var changed: () -> Void = {}
+
+  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale. The store
+  /// counts staleness with the interval in force then, which the readings shown earlier cannot know.
+  var onStaleDeadline: () -> Void = {}
+
   private let source: MetricSource
   private let style: DetailStyle
-  private var readings: MetricReadings?
-  private lazy var staleCheck = StaleCheck { [weak self] in self?.markStale() }
+  private lazy var staleCheck = StaleCheck { [weak self] in self?.onStaleDeadline() }
 
   init(metric: Metric, source: MetricSource, style: DetailStyle) {
     let title = metric.detailTitle(measuring: source.quantity)
@@ -166,8 +175,6 @@ final class DetailSection {
     let now = ContinuousClock.now
     let row = metric.detailRow(for: readings, source: source, at: now)
 
-    self.readings = readings
-
     value?.show(row, at: now)
     history?.show(metric.historyChart(for: readings, at: now))
     cores?.show(metric.coreChart(for: readings, at: now))
@@ -181,12 +188,6 @@ final class DetailSection {
 
     staleCheck.schedule(at: row.isStale ? nil : readings.staleAt)
     changed()
-  }
-
-  private func markStale() {
-    if let readings {
-      show(readings)
-    }
   }
 
   private func usedMemoryRow(for row: DetailRow, readings: MetricReadings, at now: ContinuousClock.Instant) -> BarRow {

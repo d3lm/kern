@@ -49,19 +49,20 @@ final class DetailPopover {
 
     coordinator.areDetailsVisible = true
 
-    for metric in Metric.allCases {
-      if let readings = store[metric] {
-        content.show(readings, for: metric)
-      }
-    }
-
-    content.fittingSizeChanged = { [weak self] in self?.place(below: button) }
-
-    let observer = store.observe { [weak content] metric in
+    let show: @MainActor (Metric) -> Void = { [weak content] metric in
       if let readings = store[metric] {
         content?.show(readings, for: metric)
       }
     }
+
+    for metric in Metric.allCases {
+      show(metric)
+    }
+
+    content.fittingSizeChanged = { [weak self] in self?.place(below: button) }
+    content.onStaleDeadline = show
+
+    let observer = store.observe(show)
 
     open = Open(
       panel: panel,

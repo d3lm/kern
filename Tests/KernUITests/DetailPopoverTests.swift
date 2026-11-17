@@ -128,6 +128,29 @@ extension AppEvents {
       #expect(content[.gpu].value?.valueText == "77%")
     }
 
+    /// At a 100 ms interval a value goes stale 1.2 s after it is acquired, and the check may fire 0.5 s late,
+    /// so the test looks 2 s after the last sample. No sample is in flight once the sensor has closed.
+    @Test func valueWhoseIntervalWasLengthenedStaysCurrentPastItsOldStaleDeadline() async throws {
+      coordinator.setInterval(.milliseconds(100), for: .gpu)
+      details.toggle(from: button)
+
+      await waitUntil { details.content?[.gpu].value?.valueText == "12%" }
+
+      coordinator.stop()
+
+      await waitUntil { calls[.gpu]!.all.last == "close" }
+
+      let stopped = ContinuousClock.now
+
+      coordinator.setInterval(.seconds(60), for: .gpu)
+
+      try await Task.sleep(until: stopped + .seconds(2))
+
+      #expect(coordinator.store[.gpu]?.isStale(at: .now) == false)
+      #expect(details.content?[.gpu].value?.content?.isStale == false)
+      #expect(details.content?[.gpu].history?.content?.isStale == false)
+    }
+
     @Test func closingReleasesTheWindowAndViewsAndStopsFollowingSamples() async throws {
       weak var content: DetailView?
       weak var popoverWindow: NSWindow?

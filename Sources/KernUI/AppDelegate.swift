@@ -5,10 +5,14 @@ import KernCore
 public final class AppDelegate: NSObject, NSApplicationDelegate {
   private var coordinator: MetricsCoordinator<ContinuousClock>?
   private var statusItem: StatusItemController?
+  private var powerState: PowerStateObserver?
 
   public func applicationDidFinishLaunching(_ notification: Notification) {
     let (chip, providers) = Self.providers()
     let coordinator = MetricsCoordinator(providers: providers)
+
+    coordinator.lowPowerModeBehavior = .configured(in: .standard)
+    powerState = PowerStateObserver { coordinator.powerState = $0 }
 
     statusItem = StatusItemController(
       store: coordinator.store,

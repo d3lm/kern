@@ -161,7 +161,7 @@ click to drawn, ms: median 40.7, p95 50.9, max 61.0
 ```sh
 $ swift build -c release --product kern-power-bench
 $ log stream --style ndjson --level debug --predicate 'subsystem == "Kern" && process == "kern-power-bench"' \
-    | swift Scripts/power-report.swift    # in a second terminal, until Ctrl-C
+  | swift Scripts/power-report.swift    # in a second terminal, until Ctrl-C
 $ .build/release/kern-power-bench 10
 ```
 

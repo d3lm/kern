@@ -4,6 +4,8 @@
 
 # Kern
 
+Kern is pronounced [kɛʁn], like the German word for "core".
+
 A lightweight macOS menu-bar monitor for Apple Silicon. Kern shows CPU temperature, a CPU usage graph, and GPU activity in the menu bar, and is built to use almost no resources itself.
 
 <p align="center">

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.webp" alt="Kern logo" width="120">
+</p>
+
 # Kern
 
 A lightweight macOS menu-bar monitor for Apple Silicon. Kern shows CPU temperature, a CPU usage graph, and GPU activity in the menu bar, and is built to use almost no resources itself.

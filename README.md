@@ -6,6 +6,14 @@
 
 A lightweight macOS menu-bar monitor for Apple Silicon. Kern shows CPU temperature, a CPU usage graph, and GPU activity in the menu bar, and is built to use almost no resources itself.
 
+<p align="center">
+  <img src="assets/menu-bar.png" alt="Kern in the menu bar, showing the CPU temperature, a CPU usage chart, and gauges for GPU activity and memory pressure" width="308">
+</p>
+
+<p align="center">
+  <img src="assets/popover.png" alt="Kern's popover with cards for CPU, GPU, temperature, and memory" width="376">
+</p>
+
 ## Requirements
 
 - A Mac with an M1, M2, M3, M4, or M5 chip

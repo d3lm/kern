@@ -3,8 +3,8 @@ import KernCore
 import Testing
 import os
 
-/// Not a `Mutex`: Swift 6.1 crashes at `-O` on a test that creates a log holding a `Mutex`
-/// and never uses it, so `swift test -c release` would not build.
+/// Uses `OSAllocatedUnfairLock` rather than `Mutex` because Swift 6.1 crashes at `-O` on a test that creates a log
+/// holding a `Mutex` and never uses it, so `swift test -c release` would not build.
 final class SensorLog: Sendable {
   private let events = OSAllocatedUnfairLock<[String]>(initialState: [])
 

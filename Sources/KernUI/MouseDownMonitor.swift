@@ -2,19 +2,22 @@ import AppKit
 
 /// A button clears its highlight when click tracking ends, so it must not track the mouse-downs that open a panel.
 /// Command-clicks must still reach it, because the menu bar uses them to move the item.
+///
+/// A status item's window is wider and taller than its button, and hands the button the mouse-downs outside its
+/// bounds too, so every mouse-down in the button's window is taken, not only those on the button.
 @MainActor
 final class MouseDownMonitor {
   nonisolated(unsafe) private var monitor: Any?
 
   init(on button: NSButton, handler: @escaping @MainActor (NSEvent) -> Void) {
     monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak button] event in
-      let isOnButton = MainActor.assumeIsolated {
-        guard let button, event.window === button.window, !event.modifierFlags.contains(.command) else { return false }
+      let isOnItem = MainActor.assumeIsolated {
+        guard let window = button?.window else { return false }
 
-        return button.bounds.contains(button.convert(event.locationInWindow, from: nil))
+        return event.window === window && !event.modifierFlags.contains(.command)
       }
 
-      guard isOnButton else { return event }
+      guard isOnItem else { return event }
 
       MainActor.assumeIsolated { handler(event) }
 

@@ -51,7 +51,9 @@ struct MemorySensorTests {
 
     let reading = await provider.sample()
 
-    #expect(reading.state == .valid(MetricValue(50, .percent)))
+    #expect(reading.value?.value == 50)
+    #expect(reading.value?.unit == .percent)
+    #expect(reading.value?.memory == MemoryAmount(usedBytes: 16 << 30, installedBytes: 32 << 30))
     #expect(reading.source == SourceID("memory.host_statistics64"))
     #expect(reading.quantity == .memoryUsage)
   }
@@ -59,7 +61,7 @@ struct MemorySensorTests {
   @Test func firstReadAlreadyHasAValue() async {
     let provider = await startedProvider([.success(memory(anonymous: 8))])
 
-    #expect(await provider.sample().state == .valid(MetricValue(25, .percent)))
+    #expect(await provider.sample().value?.value == 25)
   }
 
   @Test func readingsStayWithinZeroToOneHundredPercent() async {
@@ -68,8 +70,8 @@ struct MemorySensorTests {
       .success(memory(anonymous: 20, wired: 8, compressor: 4)),
     ])
 
-    #expect(await provider.sample().state == .valid(MetricValue(0, .percent)))
-    #expect(await provider.sample().state == .valid(MetricValue(100, .percent)))
+    #expect(await provider.sample().value?.value == 0)
+    #expect(await provider.sample().value?.value == 100)
   }
 
   @Test(arguments: [
@@ -92,7 +94,7 @@ struct MemorySensorTests {
     let provider = await startedProvider([.failure(failure), .success(memory(anonymous: 16))])
 
     #expect(await provider.sample().state == .unavailable(.sensorFailed(failure)))
-    #expect(await provider.sample().state == .valid(MetricValue(50, .percent)))
+    #expect(await provider.sample().value?.value == 50)
     #expect(await provider.errorState == nil)
   }
 

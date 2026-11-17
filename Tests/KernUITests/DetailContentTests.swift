@@ -70,29 +70,13 @@ struct DetailContentTests {
     #expect(memory.explanation == "VM statistics")
   }
 
-  @Test func cpuUsageDividesIntoUserAndSystemTimeFromTheSameSample() {
+  @Test func cpuExplanationAddsUserAndSystemTimeFromTheSameSample() {
     let split = CPUTimeSplit(user: 17.6, system: 24.4)
     let cpu = readings(.cpu, after: [sample(.valid(MetricValue(42, .percent, split: split)), at: start)])
+    let row = Metric.cpu.detailRow(for: cpu, source: source(.utilization, "Mach counters"), at: start)
 
-    let rows = Metric.cpu.detailLines.map {
-      Metric.cpu.detailRow($0, for: cpu, source: source(.utilization), at: start)
-    }
-
-    #expect(Metric.cpu.detailLines == [.value, .userTime, .systemTime])
-    #expect(rows.map(\.label) == ["Usage", "User", "System"])
-    #expect(rows.map(\.title) == ["CPU usage", "CPU user time", "CPU system time"])
-    #expect(rows.map(\.valueText) == ["42%", "18%", "24%"])
-    #expect(Metric.gpu.detailLines == [.value])
-  }
-
-  @Test func cpuWithoutASplitHasNoUserOrSystemValue() {
-    let cpu = readings(.cpu, after: [sample(value(42), at: start)])
-
-    for line in [DetailLine.userTime, .systemTime] {
-      let row = Metric.cpu.detailRow(line, for: cpu, source: source(.utilization), at: start)
-
-      #expect((row.valueText, row.spokenValue) == ("—", "unavailable"))
-    }
+    #expect(row.valueText == "42%")
+    #expect(row.explanation == "Mach counters\nUser 18% (apps), system 24% (macOS kernel)")
   }
 
   @Test func valuesAreWholeUnitsAndSpokenWithTheirUnit() {
@@ -109,7 +93,8 @@ struct DetailContentTests {
     )
 
     #expect((percent.valueText, percent.spokenValue) == ("87%", "87 percent"))
-    #expect((celsius.valueText, celsius.spokenValue) == ("68 °C", "68 degrees Celsius"))
+    #expect((celsius.valueText, celsius.spokenValue) == ("68°", "68 degrees Celsius"))
+    #expect((celsius.numberText, celsius.unitText) == ("68", "°"))
   }
 
   @Test func currentValueSaysNothingAboutItsStatus() {
@@ -130,32 +115,6 @@ struct DetailContentTests {
     #expect(row.valueText == "23%")
     #expect(row.isStale)
     #expect(statusText(row, at: start + .seconds(5)) == "Stale: not updated since 22:29:55")
-  }
-
-  @Test func userAndSystemTimeGoStaleWithTheValueAndLeaveTheStatusToIt() {
-    let split = CPUTimeSplit(user: 10, system: 13)
-    let cpu = readings(.cpu, after: [sample(.valid(MetricValue(23, .percent, split: split)), at: start)])
-
-    for line in [DetailLine.userTime, .systemTime] {
-      let row = Metric.cpu.detailRow(line, for: cpu, source: source(.utilization), at: start + .seconds(5))
-
-      #expect(row.isStale)
-      #expect(statusText(row, at: start + .seconds(5)) == nil)
-    }
-  }
-
-  @Test func markingStaleChangesOnlyStaleness() {
-    let cpu = readings(.cpu, after: [sample(value(23), at: start)])
-    let current = Metric.cpu.detailRow(for: cpu, source: source(.utilization), at: start)
-    let stale = Metric.cpu.detailRow(for: cpu, source: source(.utilization), at: start + .seconds(5))
-    let waiting = Metric.cpu.detailRow(for: readings(.cpu), source: source(.utilization), at: start)
-    let history = HistoryChart(levels: [nil, 4], span: .seconds(4), isStale: false)
-    let cores = CoreChart(cores: CoreUtilization(performance: [1], efficiency: [2]), isStale: false)
-
-    #expect(current.markedStale == stale)
-    #expect(waiting.markedStale == waiting)
-    #expect(history.markedStale == HistoryChart(levels: [nil, 4], span: .seconds(4), isStale: true))
-    #expect(cores.markedStale == CoreChart(cores: cores.cores, isStale: true))
   }
 
   @Test func failedSampleKeepsTheLastValueCurrentUntilItGoesStale() {
@@ -233,12 +192,52 @@ struct DetailContentTests {
     #expect(chart.levels == Array(repeating: nil, count: 57) + [12.4, nil, 57.6])
     #expect(chart.span == .seconds(120))
     #expect(chart.spokenSummary == "Last 2 minutes: lowest 12 percent, highest 58 percent")
-    #expect(Metric.temperature.historyChart(for: readings(.temperature), at: start) == nil)
+    #expect(Metric.memory.historyChart(for: readings(.memory), at: start) == nil)
+  }
+
+  @Test func temperatureHistoryCoversTenMinutesInDegrees() throws {
+    let samples = [sample(value(61.6, .celsius)), sample(value(88.6, .celsius))]
+    let chart = try #require(
+      Metric.temperature.historyChart(for: readings(.temperature, interval: .seconds(10), after: samples), at: start))
+
+    #expect(chart.unit == .celsius)
+    #expect(chart.spokenSummary == "Last 10 minutes: lowest 62 degrees Celsius, highest 89 degrees Celsius")
   }
 
   @Test func historyWithoutValuesSaysSo() throws {
     let chart = try #require(Metric.gpu.historyChart(for: readings(.gpu, after: [sample(failed)]), at: start))
 
     #expect(chart.spokenSummary == "No values in the last 2 minutes")
+  }
+
+  @Test(arguments: [
+    (UInt64(29_850_000_000), UInt64(32) << 30, "27.8 / 32 GB", "27.8 of 32 gigabytes"),
+    (UInt64(1) << 29, UInt64(8) << 30, "0.5 / 8 GB", "0.5 of 8 gigabytes"),
+    (UInt64(3) << 29, UInt64(3) << 29, "1.5 / 1.5 GB", "1.5 of 1.5 gigabytes"),
+  ])
+  func usedMemoryIsInGigabytesOfTheInstalledMemory(used: UInt64, installed: UInt64, text: String, spoken: String) {
+    let memory = MemoryText(MemoryAmount(usedBytes: used, installedBytes: installed))
+
+    #expect((memory.text, memory.spokenText) == (text, spoken))
+  }
+
+  @Test func sensorRangeShowsItsHottestAndSaysItsRange() {
+    let range = SensorRange(PartTemperature(part: .cpu, coolest: 75.6, hottest: 88.6))
+    let single = SensorRange(PartTemperature(part: .cpu, coolest: 60.2, hottest: 59.8))
+
+    #expect((range.label, range.valueText) == ("CPU", "89°"))
+    #expect(range.spokenText == "CPU sensors, 76 to 89 degrees Celsius")
+    #expect(single.spokenText == "CPU sensors, 60 degrees Celsius")
+  }
+
+  @Test func coreKindsShowTheMeanOfTheirCores() {
+    #expect(CoreChart.mean([88, 92, 85, 79, 70, 66, 70, 66]) == 77)
+    #expect(CoreChart.mean([]) == nil)
+  }
+
+  @Test func headerNamesTheChipWithoutApple() {
+    #expect(ChipIdentity.recognized(Chip(family: .m1, variant: .max)).name == "M1 Max")
+    #expect(ChipIdentity(brandString: "Apple M6 Max").name == "M6 Max")
+    #expect(ChipIdentity.unrecognized(brandString: nil).name == nil)
   }
 }

@@ -81,14 +81,39 @@ extension AppEvents {
       withExtendedLifetime(monitor) {}
     }
 
-    @Test func mouseDownBesideTheButtonIsLeftAlone() {
+    /// The window is wider than the button, as a status item's is.
+    @Test(arguments: [NSPoint(x: 150, y: 11), NSPoint(x: 50, y: 21.5), NSPoint(x: 199, y: 0.5)])
+    func mouseDownInTheItemsWindowBesideTheButtonStillGoesToTheHandler(at point: NSPoint) {
+      var handled = 0
+
+      let monitor = MouseDownMonitor(on: button) { _ in
+        handled += 1
+        self.button.highlight(true)
+      }
+
+      button.frame = NSRect(x: 0, y: 0, width: 100, height: 20)
+      click(at: point)
+
+      #expect(handled == 1)
+      #expect(actions == 0)
+      #expect(button.isHighlighted)
+
+      withExtendedLifetime(monitor) {}
+    }
+
+    @Test func mouseDownInAnotherWindowIsLeftAlone() {
       var handled = 0
       let monitor = MouseDownMonitor(on: button) { _ in handled += 1 }
+      let other = NSWindow(contentRect: window.frame, styleMask: .borderless, backing: .buffered, defer: false)
 
-      click(at: NSPoint(x: 150, y: 11))
+      other.orderFrontRegardless()
+      NSApp.sendEvent(
+        NSEvent.mouseEvent(
+          with: .leftMouseDown, location: NSPoint(x: 50, y: 11), modifierFlags: [], timestamp: 0,
+          windowNumber: other.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!)
 
       #expect(handled == 0)
-      #expect(actions == 0)
+      other.orderOut(nil)
 
       withExtendedLifetime(monitor) {}
     }

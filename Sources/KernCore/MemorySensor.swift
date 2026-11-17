@@ -54,7 +54,12 @@ public struct MemorySensor: MetricSensor {
       throw SensorError("\(usedPages) pages of \(counts.pageSize) bytes exceed the \(installed) bytes installed")
     }
 
-    return .value(MetricValue(Double(used) / Double(installed) * 100, .percent))
+    return .value(
+      MetricValue(
+        Double(used) / Double(installed) * 100,
+        .percent,
+        memory: MemoryAmount(usedBytes: used, installedBytes: installed)
+      ))
   }
 
   public mutating func close() {

@@ -20,7 +20,8 @@ struct CPUTemperatureMap: Equatable, Sendable {
 
   /// Sensor keys differ between chip generations and variants, so add a chip only after verifying its keys on it.
   static let validated: [Chip: CPUTemperatureMap] = [
-    // one key per core, the middle of its three: the first is this one minus a fixed offset, the third is noisier
+    // each core has three keys and the map uses the middle one, because the first reads as the middle one minus a
+    // fixed offset and the third is noisier
     Chip(family: .m1, variant: .max): CPUTemperatureMap(
       sensors: ["Tp01", "Tp05", "Tp09", "Tp0D", "Tp0H", "Tp0L", "Tp0P", "Tp0T", "Tp0X", "Tp0b"],
       aggregation: .maximum
@@ -84,11 +85,13 @@ public struct TemperatureSensor: MetricSensor {
       celsius.append(value)
     }
 
-    guard let combined = map.aggregation.combine(celsius) else {
+    guard let combined = map.aggregation.combine(celsius), let coolest = celsius.min(), let hottest = celsius.max()
+    else {
       throw SensorError("the sensor map for \(chip) has no sensors")
     }
 
-    return .value(MetricValue(combined, .celsius))
+    return .value(
+      MetricValue(combined, .celsius, temperatures: [PartTemperature(part: .cpu, coolest: coolest, hottest: hottest)]))
   }
 
   public mutating func close() {

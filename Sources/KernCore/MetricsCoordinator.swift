@@ -142,7 +142,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     }
   }
 
-  /// Cancellation only ends sampling; starting and stopping the provider always run, so they stay paired.
+  /// Cancellation only ends sampling. Starting and stopping the provider always run, so they stay paired.
   private func enqueue(_ metric: Metric, _ change: @escaping @Sendable (_ lastTick: C.Instant?) async -> C.Instant?) {
     let previous = collectors[metric]?.lastChange
 

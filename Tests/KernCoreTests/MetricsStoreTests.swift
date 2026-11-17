@@ -57,16 +57,15 @@ struct MetricsStoreTests {
     ])
   }
 
-  @Test func cpuAndGPUKeepSixtySamplesOfHistoryAndTheOtherMetricsNone() {
+  @Test func everyChartedMetricKeepsSixtySamplesOfHistoryAndUsedMemoryNone() {
     let store = store()
 
-    #expect(store[.cpu]?.history?.capacity == 60)
-    #expect(store[.gpu]?.history?.capacity == 60)
-
-    for metric in [Metric.temperature, .memory, .memoryPressure] {
-      #expect(store[metric] != nil, "\(metric)")
-      #expect(store[metric]?.history == nil, "\(metric)")
+    for metric in [Metric.cpu, .gpu, .temperature, .memoryPressure] {
+      #expect(store[metric]?.history?.capacity == 60, "\(metric)")
     }
+
+    #expect(store[.memory] != nil)
+    #expect(store[.memory]?.history == nil)
   }
 
   @Test func unavailableSampleEntersTheHistoryAsAGapNotAsZero() {

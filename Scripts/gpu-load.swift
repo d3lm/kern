@@ -1,7 +1,7 @@
 // Keeps the GPU fully busy with a fixed Metal compute workload for a set time, so GPU readings can be compared
 // between idle and load.
 //
-// Usage: swift Scripts/gpu-load.swift [seconds] (default 60)
+// Run it as `swift Scripts/gpu-load.swift [seconds]`, where the time defaults to 60 seconds.
 
 import Foundation
 import Metal

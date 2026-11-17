@@ -15,8 +15,8 @@ public enum Metric: String, CaseIterable, Sendable {
 
   var keepsHistory: Bool {
     switch self {
-    case .cpu, .gpu: true
-    case .temperature, .memory, .memoryPressure: false
+    case .cpu, .gpu, .temperature, .memoryPressure: true
+    case .memory: false
     }
   }
 

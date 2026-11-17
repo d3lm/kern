@@ -32,7 +32,7 @@ extension AppEvents {
         )
       )
 
-      details = DetailPopover(coordinator: coordinator)
+      details = DetailPopover(coordinator: coordinator, chip: .recognized(Chip(family: .m1, variant: .max)))
 
       button.frame = NSRect(x: 0, y: 0, width: 200, height: 22)
       button.addSubview(menuBarView)
@@ -57,7 +57,7 @@ extension AppEvents {
       #expect(details.isShown)
       #expect(coordinator.areDetailsVisible)
 
-      await waitUntil { details.content?[.memory].rows[0].valueText == "12%" }
+      await waitUntil { details.content?[.memory].bar?.valueText == "12%" }
 
       details.toggle(from: button)
 
@@ -67,6 +67,12 @@ extension AppEvents {
       await waitUntil { calls[.memory]!.all.last == "close" }
 
       #expect(calls[.memory]!.all == ["open", "read", "close"])
+    }
+
+    @Test func headerNamesTheChip() {
+      details.toggle(from: button)
+
+      #expect(details.content?.header.chip?.stringValue == "M1 Max")
     }
 
     @Test func panelOpensCenteredBelowTheItem() throws {
@@ -119,7 +125,7 @@ extension AppEvents {
 
       coordinator.store.record(sample(value(77), at: .now), for: .gpu)
 
-      #expect(content[.gpu].rows[0].valueText == "77%")
+      #expect(content[.gpu].value?.valueText == "77%")
     }
 
     @Test func closingReleasesTheWindowAndViewsAndStopsFollowingSamples() async throws {
@@ -130,7 +136,7 @@ extension AppEvents {
       content = details.content
       popoverWindow = content?.window
 
-      let row = try #require(content?[.gpu].rows[0])
+      let row = try #require(content?[.gpu].value)
 
       #expect(popoverWindow?.isVisible == true)
 

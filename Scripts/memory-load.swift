@@ -1,7 +1,7 @@
 // Fills a given amount of memory with random bytes, holds it for a set time, and frees it, so memory readings can
 // be compared before, during, and after. Random bytes cannot be compressed, so the memory stays in use at full size.
 //
-// Usage: swift Scripts/memory-load.swift [gibibytes] [seconds] (default 4 GiB for 30 s)
+// Run it as `swift Scripts/memory-load.swift [gibibytes] [seconds]`, which defaults to 4 GiB for 30 seconds.
 
 import Foundation
 

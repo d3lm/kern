@@ -7,39 +7,45 @@ import KernCore
 final class DetailView: NSView {
   let sections: [DetailSection]
   let cards: [DetailCard]
+  let header: DetailHeader
+  let settingsButton: FooterButton
+  let quitButton: FooterButton
   var fittingSizeChanged: () -> Void = {}
   private let style: DetailStyle
   private var size = NSSize.zero
 
-  init(sources: [Metric: MetricSource], style: DetailStyle = DetailStyle()) {
-    sections = Metric.allCases.compactMap { metric in
+  init(sources: [Metric: MetricSource], chip: String? = nil, style: DetailStyle = DetailStyle()) {
+    sections = Metric.detailOrder.compactMap { metric in
       sources[metric].map { DetailSection(metric: metric, source: $0, style: style) }
     }
 
     var cards: [DetailCard] = []
 
     for section in sections {
-      let heading = section.metric.detailHeading
-      let views: [NSView] = [section.history].compactMap { $0 } + section.rows
-
-      if let card = cards.last, card.heading == heading {
-        card.add(views)
+      if let card = cards.last, card.heading == section.metric.detailHeading {
+        card.add(section.lines)
       } else {
-        cards.append(DetailCard(heading: heading, symbol: Self.symbol(for: section.metric), views: views, style: style))
-      }
-
-      if let cores = section.cores {
-        cards.append(DetailCard(heading: "CPU Cores", symbol: Self.symbol(for: .cpu), views: [cores], style: style))
+        cards.append(
+          DetailCard(heading: section.metric.detailHeading, info: section.info, lines: section.lines, style: style))
       }
     }
 
     self.cards = cards
+    self.header = DetailHeader(chip: chip, style: style)
     self.style = style
+
+    settingsButton = FooterButton(title: "Settings", symbol: "gearshape", style: style)
+    settingsButton.isEnabled = false
+
+    quitButton = FooterButton(title: "Quit", style: style)
+    quitButton.target = NSApp
+    quitButton.action = #selector(NSApplication.terminate(_:))
+    quitButton.setAccessibilityLabel("Quit Kern")
 
     super.init(frame: .zero)
 
-    for card in cards {
-      addSubview(card)
+    for view in [header] + cards + [settingsButton, quitButton] {
+      addSubview(view)
     }
 
     for section in sections {
@@ -65,43 +71,60 @@ final class DetailView: NSView {
   }
 
   private func arrange() {
-    var top = style.panelPadding
+    let left = style.panelPadding
+    var top = style.headerTop
+
+    header.setFrameOrigin(NSPoint(x: left + style.cardPadding, y: top))
+    top = header.frame.maxY + style.headerBottom
 
     for card in cards {
       card.arrange()
-      card.setFrameOrigin(NSPoint(x: style.panelPadding, y: top))
+      card.setFrameOrigin(NSPoint(x: left, y: top))
       top = card.frame.maxY + style.cardSpacing
     }
 
-    let size = NSSize(
-      width: style.cardWidth + 2 * style.panelPadding,
-      height: top - style.cardSpacing + style.panelPadding
-    )
+    top += style.footerSpacing - style.cardSpacing
+
+    settingsButton.setFrameOrigin(NSPoint(x: left, y: top))
+    quitButton.setFrameOrigin(NSPoint(x: left + style.cardWidth - quitButton.frame.width, y: top))
+
+    let size = NSSize(width: style.panelWidth, height: top + style.buttonHeight + style.panelPadding)
 
     if size != self.size {
       self.size = size
       fittingSizeChanged()
     }
   }
-
-  private static func symbol(for metric: Metric) -> String {
-    switch metric {
-    case .cpu: "cpu"
-    case .gpu: "display"
-    case .temperature: "thermometer.medium"
-    case .memory, .memoryPressure: "memorychip"
-    }
-  }
 }
 
+/// A part of a card, and what kind of part it is, which sets the space above it.
+struct DetailLine {
+  enum Kind {
+    case value
+    case chart
+    case divider
+    case row
+  }
+
+  let view: NSView
+  let kind: Kind
+}
+
+/// One metric's parts of its card, and keeping them up to date with its readings.
 @MainActor
 final class DetailSection {
   let metric: Metric
-  let rows: [DetailRowView]
+  let value: DetailValueView?
   let history: HistoryChartView?
   let cores: CoreChartView?
+  let sensors: SensorListView?
+  let bar: BarRowView?
+  let info: String?
+  let lines: [DetailLine]
   var changed: () -> Void = {}
   private let source: MetricSource
+  private let style: DetailStyle
+  private var readings: MetricReadings?
   private lazy var staleCheck = StaleCheck { [weak self] in self?.markStale() }
 
   init(metric: Metric, source: MetricSource, style: DetailStyle) {
@@ -109,73 +132,164 @@ final class DetailSection {
 
     self.metric = metric
     self.source = source
-    self.rows = metric.detailLines.map { _ in DetailRowView(style: style) }
-    self.history = metric == .cpu || metric == .gpu ? HistoryChartView(title: title, style: style) : nil
-    self.cores = metric == .cpu ? CoreChartView(title: title, kinds: source.coreKinds, style: style) : nil
+    self.style = style
+
+    value =
+      metric == .memory
+      ? nil : DetailValueView(caption: metric.detailCaption(measuring: source.quantity), style: style)
+
+    history =
+      switch metric {
+      case .cpu, .memoryPressure: HistoryChartView(title: title, fill: .gradient(style.cpuGradient), style: style)
+      case .gpu: HistoryChartView(title: title, fill: .gradient(style.gpuGradient), style: style)
+      case .temperature: HistoryChartView(title: title, fill: .temperature, style: style)
+      case .memory: nil
+      }
+
+    cores = metric == .cpu ? CoreChartView(title: title, kinds: source.coreKinds, style: style) : nil
+    sensors = metric == .temperature ? SensorListView(style: style) : nil
+    bar = metric == .memory ? BarRowView(valueWidth: style.memoryValueWidth, style: style) : nil
+    info = metric == .gpu || metric == .temperature ? metric.detailExplanation(of: source) : nil
+
+    let parts: [DetailLine?] = [
+      value.map { DetailLine(view: $0, kind: .value) },
+      history.map { DetailLine(view: $0, kind: .chart) },
+      cores.map { DetailLine(view: $0, kind: .row) },
+      sensors.map { DetailLine(view: $0, kind: .row) },
+      bar.map { DetailLine(view: $0, kind: .row) },
+    ]
+
+    lines = parts.compactMap { $0 }
   }
 
   func show(_ readings: MetricReadings) {
     let now = ContinuousClock.now
-    let contents = metric.detailLines.map { metric.detailRow($0, for: readings, source: source, at: now) }
+    let row = metric.detailRow(for: readings, source: source, at: now)
 
-    for (row, content) in zip(rows, contents) {
-      row.show(content, at: now)
-    }
+    self.readings = readings
 
+    value?.show(row, at: now)
     history?.show(metric.historyChart(for: readings, at: now))
     cores?.show(metric.coreChart(for: readings, at: now))
-    staleCheck.schedule(at: contents[0].isStale ? nil : readings.staleAt)
+    bar?.show(usedMemoryRow(for: row, readings: readings, at: now))
+
+    sensors?.show(
+      (readings.lastSuccessful?.value?.temperatures ?? []).map(SensorRange.init),
+      isStale: row.isStale,
+      help: source.description
+    )
+
+    staleCheck.schedule(at: row.isStale ? nil : readings.staleAt)
     changed()
   }
 
   private func markStale() {
-    for row in rows {
-      if let content = row.content {
-        row.show(content.markedStale, at: .now)
-      }
+    if let readings {
+      show(readings)
     }
-
-    if let chart = history?.content {
-      history?.show(chart.markedStale)
-    }
-
-    if let chart = cores?.content {
-      cores?.show(chart.markedStale)
-    }
-
-    changed()
   }
+
+  private func usedMemoryRow(for row: DetailRow, readings: MetricReadings, at now: ContinuousClock.Instant) -> BarRow {
+    let memory = readings.lastSuccessful?.value?.memory.map(MemoryText.init)
+    let status = row.statusText(at: now, date: .now, timeStyle: DetailValueView.timeStyle)
+
+    return BarRow(
+      label: row.label,
+      fill: row.value.map { 0...$0.fraction },
+      color: style.used,
+      value: memory?.used ?? row.valueText,
+      valueDetail: memory.map { " / \($0.installed) GB" } ?? "",
+      spokenValue: ["\(row.title), \(memory?.spokenText ?? row.spokenValue)", status].compactMap { $0 }
+        .joined(separator: ". "),
+      status: status,
+      help: row.explanation,
+      isStale: row.isStale
+    )
+  }
+}
+
+final class DetailHeader: NSView {
+  let title: NSTextField
+  let chip: NSTextField?
+
+  init(chip: String?, style: DetailStyle) {
+    title = NSTextField(labelWithString: "Kern")
+    self.chip = chip.map { NSTextField(labelWithString: $0) }
+
+    super.init(frame: .zero)
+
+    title.font = style.titleFont
+    title.sizeToFit()
+    title.setAlignmentOrigin(.zero)
+    addSubview(title)
+
+    if let field = self.chip {
+      field.font = style.chipFont
+      field.textColor = .secondaryLabelColor
+      field.sizeToFit()
+      field.setAlignmentOrigin(
+        NSPoint(
+          x: title.alignmentSize.width + style.headerSpacing,
+          y: title.firstBaselineOffsetFromTop - field.firstBaselineOffsetFromTop))
+
+      addSubview(field)
+    }
+
+    setFrameSize(NSSize(width: style.contentWidth, height: title.alignmentSize.height))
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("DetailHeader is not loaded from a nib")
+  }
+
+  override var isFlipped: Bool { true }
 }
 
 final class DetailCard: NSView {
   let heading: String
   private let style: DetailStyle
-  private let icon: NSImageView
   private let title: NSTextField
-  private var lines: [NSView] = []
+  private let infoIcon: NSImageView?
+  private var lines: [DetailLine] = []
 
-  init(heading: String, symbol: String, views: [NSView], style: DetailStyle) {
+  init(heading: String, info: String?, lines: [DetailLine], style: DetailStyle) {
     self.heading = heading
     self.style = style
 
-    icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: nil) ?? NSImage())
-    title = NSTextField(labelWithString: heading.uppercased())
+    title = NSTextField(
+      labelWithAttributedString: NSAttributedString(
+        string: heading.uppercased(),
+        attributes: [
+          .font: style.headingFont, .foregroundColor: NSColor.secondaryLabelColor, .kern: style.headingTracking,
+        ]))
+
+    infoIcon = info.map { info in
+      let icon = NSImageView(
+        image: NSImage(systemSymbolName: "info.circle", accessibilityDescription: nil) ?? NSImage())
+
+      icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: style.headingFont.pointSize, weight: .regular)
+      icon.contentTintColor = .secondaryLabelColor
+      icon.toolTip = info
+      icon.setAccessibilityElement(false)
+      icon.sizeToFit()
+
+      return icon
+    }
 
     super.init(frame: .zero)
 
-    icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: style.headingFont.pointSize, weight: .medium)
-    icon.contentTintColor = .secondaryLabelColor
-    icon.setAccessibilityElement(false)
-    icon.sizeToFit()
-    title.font = style.headingFont
-    title.textColor = .secondaryLabelColor
     title.setAccessibilityLabel(heading)
     title.sizeToFit()
 
     wantsLayer = true
-    addSubview(icon)
     addSubview(title)
-    add(views)
+
+    if let infoIcon {
+      addSubview(infoIcon)
+    }
+
+    add(lines)
   }
 
   @available(*, unavailable)
@@ -185,9 +299,19 @@ final class DetailCard: NSView {
 
   override var isFlipped: Bool { true }
 
-  func add(_ views: [NSView]) {
-    lines += views
-    views.forEach(addSubview)
+  /// Rows below a chart are set apart from it by a divider.
+  func add(_ lines: [DetailLine]) {
+    for line in lines {
+      if line.kind == .row, self.lines.last?.kind == .chart {
+        let divider = DetailLine(view: DividerView(style: style), kind: .divider)
+
+        self.lines.append(divider)
+        addSubview(divider.view)
+      }
+
+      self.lines.append(line)
+      addSubview(line.view)
+    }
   }
 
   func arrange() {
@@ -195,12 +319,33 @@ final class DetailCard: NSView {
     let headingHeight = title.alignmentSize.height
     var top = padding + headingHeight
 
-    icon.setAlignmentOrigin(NSPoint(x: padding, y: padding + (headingHeight - icon.alignmentSize.height) / 2))
-    title.setAlignmentOrigin(NSPoint(x: padding + icon.alignmentSize.width + style.headingSpacing, y: padding))
+    title.setAlignmentOrigin(NSPoint(x: padding, y: padding))
 
-    for line in lines {
-      line.setFrameOrigin(NSPoint(x: padding, y: top + style.lineSpacing))
-      top = line.frame.maxY
+    infoIcon?.setAlignmentOrigin(
+      NSPoint(
+        x: padding + title.alignmentSize.width + style.headerSpacing,
+        y: padding + (headingHeight - (infoIcon?.alignmentSize.height ?? 0)) / 2))
+
+    var previous: DetailLine.Kind?
+
+    for (index, line) in lines.enumerated() {
+      if line.kind == .divider {
+        line.view.isHidden = index + 1 < lines.count ? lines[index + 1].view.isHidden : true
+      }
+
+      guard !line.view.isHidden else { continue }
+
+      let spacing =
+        switch line.kind {
+        case .value: style.valueSpacing
+        case .chart: style.chartSpacing
+        case .divider: style.dividerSpacing
+        case .row: previous == .divider ? style.dividerSpacing : style.rowSpacing
+        }
+
+      line.view.setFrameOrigin(NSPoint(x: padding, y: top + spacing))
+      top = line.view.frame.maxY
+      previous = line.kind
     }
 
     setFrameSize(NSSize(width: style.cardWidth, height: top + padding))
@@ -219,31 +364,146 @@ final class DetailCard: NSView {
   }
 }
 
-final class DetailRowView: NSView {
-  private static let timeStyle = Date.FormatStyle(date: .omitted, time: .standard)
+/// A metric's large number, with what it measures beside it and, below it, the status of a value that is not current.
+final class DetailValueView: NSView {
+  static let timeStyle = Date.FormatStyle(date: .omitted, time: .standard)
 
   private let style: DetailStyle
-  private let label: NSTextField
-  private let value: NSTextField
-  private let bar: LevelBar
+  private let number: NSTextField
+  private let unit: NSTextField
+  private let caption: NSTextField?
   private let status: NSTextField
   private(set) var content: DetailRow?
 
-  init(style: DetailStyle) {
+  init(caption: String?, style: DetailStyle) {
     self.style = style
-    label = NSTextField(labelWithString: "")
-    value = NSTextField(labelWithString: "")
-    bar = LevelBar(style: style)
+    number = NSTextField(labelWithString: "")
+    unit = NSTextField(labelWithString: "")
+    self.caption = caption.map { NSTextField(labelWithString: $0) }
     status = NSTextField(wrappingLabelWithString: "")
 
     super.init(frame: .zero)
 
+    number.font = style.bigValueFont
+    status.font = style.captionFont
+    status.textColor = .secondaryLabelColor
+    status.isSelectable = false
+
+    if let caption = self.caption {
+      caption.font = style.captionFont
+      caption.textColor = .secondaryLabelColor
+      caption.sizeToFit()
+    }
+
+    for view in [number, unit, status] + [self.caption].compactMap({ $0 }) {
+      view.setAccessibilityElement(false)
+      addSubview(view)
+    }
+
+    setAccessibilityElement(true)
+    setAccessibilityRole(.staticText)
+    arrange()
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("DetailValueView is not loaded from a nib")
+  }
+
+  override var isFlipped: Bool { true }
+
+  var valueText: String { number.stringValue + unit.stringValue }
+  var statusText: String { status.isHidden ? "" : status.stringValue }
+
+  func show(_ content: DetailRow, at now: ContinuousClock.Instant) {
+    guard content != self.content else { return }
+
+    self.content = content
+
+    let statusText = content.statusText(at: now, date: .now, timeStyle: Self.timeStyle)
+    let isCelsius = content.value?.unit == .celsius
+
+    number.stringValue = content.numberText
+    number.textColor = content.isStale ? .tertiaryLabelColor : .labelColor
+    unit.stringValue = content.unitText
+    unit.font = isCelsius ? style.bigValueFont : style.bigUnitFont
+    unit.textColor = content.isStale ? .tertiaryLabelColor : isCelsius ? .labelColor : .secondaryLabelColor
+    status.stringValue = statusText ?? ""
+    status.isHidden = statusText == nil
+    toolTip = content.explanation
+
+    setAccessibilityValue(
+      ["\(content.title), \(content.spokenValue)", statusText].compactMap { $0 }.joined(separator: ". "))
+
+    setAccessibilityHelp(content.explanation)
+    arrange()
+  }
+
+  private func arrange() {
+    number.sizeToFit()
+    unit.sizeToFit()
+    number.setAlignmentOrigin(.zero)
+
+    let baseline = number.firstBaselineOffsetFromTop
+    let unitGap: CGFloat = content?.value?.unit == .percent ? 3 : 0
+
+    unit.setAlignmentOrigin(
+      NSPoint(x: number.alignmentSize.width + unitGap, y: baseline - unit.firstBaselineOffsetFromTop))
+
+    caption?.setAlignmentOrigin(
+      NSPoint(
+        x: style.contentWidth - (caption?.alignmentSize.width ?? 0),
+        y: baseline - (caption?.firstBaselineOffsetFromTop ?? 0)))
+
+    var top = number.alignmentSize.height
+
+    if !status.isHidden {
+      top += status.place(below: top, width: style.contentWidth, spacing: style.captionSpacing)
+    }
+
+    setFrameSize(NSSize(width: style.contentWidth, height: top))
+  }
+}
+
+struct BarRow: Equatable {
+  let label: String
+  /// The filled part of the track, as fractions of its length.
+  let fill: ClosedRange<Double>?
+  let color: NSColor
+  let value: String
+  let valueDetail: String
+  let spokenValue: String
+  let status: String?
+  let help: String?
+  let isStale: Bool
+}
+
+/// A name, a thin bar, and a value on one line, with the status of a value that is not current below them.
+final class BarRowView: NSView {
+  private let style: DetailStyle
+  private let valueWidth: CGFloat
+  private let label: NSTextField
+  private let value: NSTextField
+  private let status: NSTextField
+  let bar: LevelBar
+  private(set) var content: BarRow?
+
+  init(valueWidth: CGFloat, style: DetailStyle) {
+    self.style = style
+    self.valueWidth = valueWidth
+    label = NSTextField(labelWithString: "")
+    value = NSTextField(labelWithString: "")
+    status = NSTextField(wrappingLabelWithString: "")
+    bar = LevelBar(style: style)
+
+    super.init(frame: .zero)
+
     label.font = style.labelFont
-    value.font = style.valueFont
     value.alignment = .right
     status.font = style.captionFont
     status.textColor = .secondaryLabelColor
     status.isSelectable = false
+    status.isHidden = true
 
     for view in [label, value, status] {
       view.setAccessibilityElement(false)
@@ -258,7 +518,7 @@ final class DetailRowView: NSView {
 
   @available(*, unavailable)
   required init?(coder: NSCoder) {
-    fatalError("DetailRowView is not loaded from a nib")
+    fatalError("BarRowView is not loaded from a nib")
   }
 
   override var isFlipped: Bool { true }
@@ -267,25 +527,28 @@ final class DetailRowView: NSView {
   var valueText: String { value.stringValue }
   var statusText: String { status.isHidden ? "" : status.stringValue }
 
-  func show(_ content: DetailRow, at now: ContinuousClock.Instant) {
+  func show(_ content: BarRow) {
     guard content != self.content else { return }
 
     self.content = content
 
-    let statusText = content.statusText(at: now, date: .now, timeStyle: Self.timeStyle)
+    let color: NSColor = content.isStale ? .tertiaryLabelColor : .labelColor
 
     label.stringValue = content.label
-    value.stringValue = content.valueText
-    value.textColor = content.isStale ? .tertiaryLabelColor : .labelColor
-    bar.show(content.value, isStale: content.isStale)
-    status.stringValue = statusText ?? ""
-    status.isHidden = statusText == nil
-    toolTip = content.explanation
 
-    setAccessibilityValue(
-      ["\(content.title), \(content.spokenValue)", statusText].compactMap { $0 }.joined(separator: ". "))
+    value.attributedStringValue =
+      NSAttributedString(
+        string: content.value, attributes: [.font: style.valueFont, .foregroundColor: color])
+      + NSAttributedString(
+        string: content.valueDetail,
+        attributes: [.font: style.labelFont, .foregroundColor: NSColor.secondaryLabelColor])
 
-    setAccessibilityHelp(content.explanation)
+    bar.show(content.fill, color: content.color, isStale: content.isStale)
+    status.stringValue = content.status ?? ""
+    status.isHidden = content.status == nil
+    toolTip = content.help
+    setAccessibilityValue(content.spokenValue)
+    setAccessibilityHelp(content.help)
     arrange()
   }
 
@@ -296,30 +559,221 @@ final class DetailRowView: NSView {
 
     value.setAlignmentOrigin(
       NSPoint(
-        x: style.valueEnd - value.alignmentSize.width,
+        x: style.contentWidth - value.alignmentSize.width,
         y: label.firstBaselineOffsetFromTop - value.firstBaselineOffsetFromTop))
 
     let lineHeight = label.alignmentSize.height
     var top = lineHeight
 
     bar.frame = NSRect(
-      x: style.contentWidth - style.barWidth,
+      x: style.barStart,
       y: (lineHeight - style.barHeight) / 2,
-      width: style.barWidth,
+      width: style.contentWidth - valueWidth - style.valueGap - style.barStart,
       height: style.barHeight
     )
 
     if !status.isHidden {
-      let insets = status.alignmentRectInsets
-      let width = style.contentWidth + insets.left + insets.right
-      let height = status.sizeThatFits(NSSize(width: width, height: .greatestFiniteMagnitude)).height
-
-      status.setFrameSize(NSSize(width: width, height: height))
-      status.setAlignmentOrigin(NSPoint(x: 0, y: top + style.captionSpacing))
-      top += style.captionSpacing + status.alignmentSize.height
+      top += status.place(below: top, width: style.contentWidth, spacing: style.captionSpacing)
     }
 
     setFrameSize(NSSize(width: style.contentWidth, height: top))
+  }
+}
+
+/// A row for each part of the chip whose sensors the temperature reads, with the range from coolest to hottest.
+final class SensorListView: NSView {
+  private let style: DetailStyle
+  private(set) var rows: [BarRowView] = []
+
+  init(style: DetailStyle) {
+    self.style = style
+
+    super.init(frame: NSRect(x: 0, y: 0, width: style.contentWidth, height: 0))
+
+    isHidden = true
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("SensorListView is not loaded from a nib")
+  }
+
+  override var isFlipped: Bool { true }
+
+  func show(_ ranges: [SensorRange], isStale: Bool, help: String) {
+    while rows.count > ranges.count {
+      rows.removeLast().removeFromSuperview()
+    }
+
+    while rows.count < ranges.count {
+      let row = BarRowView(valueWidth: style.temperatureValueWidth, style: style)
+
+      rows.append(row)
+      addSubview(row)
+    }
+
+    var top: CGFloat = 0
+
+    for (row, range) in zip(rows, ranges) {
+      row.show(
+        BarRow(
+          label: range.label,
+          fill: min(range.coolest / 100, 1)...min(range.hottest / 100, 1),
+          color: style.rangeColor(celsius: range.hottest),
+          value: range.valueText,
+          valueDetail: "",
+          spokenValue: range.spokenText,
+          status: nil,
+          help: help,
+          isStale: isStale
+        ))
+
+      row.setFrameOrigin(NSPoint(x: 0, y: top))
+      top = row.frame.maxY + style.rowSpacing
+    }
+
+    isHidden = rows.isEmpty
+    setFrameSize(NSSize(width: style.contentWidth, height: max(0, top - style.rowSpacing)))
+  }
+}
+
+final class DividerView: NSView {
+  private let style: DetailStyle
+
+  init(style: DetailStyle) {
+    self.style = style
+
+    super.init(frame: NSRect(x: 0, y: 0, width: style.contentWidth, height: 1))
+
+    wantsLayer = true
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("DividerView is not loaded from a nib")
+  }
+
+  override var wantsUpdateLayer: Bool { true }
+
+  override func updateLayer() {
+    layer?.backgroundColor = NSColor.labelColor.withAlphaComponent(style.dividerAlpha).cgColor
+  }
+}
+
+final class FooterButton: NSButton {
+  private let style: DetailStyle
+  private(set) var isHovered = false
+  private(set) var isPressed = false
+
+  init(title: String, symbol: String? = nil, style: DetailStyle) {
+    self.style = style
+
+    super.init(frame: .zero)
+
+    isBordered = false
+    wantsLayer = true
+    font = style.buttonFont
+
+    attributedTitle = NSAttributedString(
+      string: title, attributes: [.font: style.buttonFont, .foregroundColor: NSColor.labelColor])
+
+    // the panel is never the key window, so the area must track the pointer in an inactive window too
+    addTrackingArea(
+      NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
+
+    if let symbol {
+      image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+      imagePosition = .imageLeading
+      imageHugsTitle = true
+      contentTintColor = .labelColor
+    }
+
+    sizeToFit()
+    setFrameSize(NSSize(width: frame.width + 2 * style.buttonPadding, height: style.buttonHeight))
+  }
+
+  @available(*, unavailable)
+  required init?(coder: NSCoder) {
+    fatalError("FooterButton is not loaded from a nib")
+  }
+
+  override var isEnabled: Bool {
+    didSet {
+      alphaValue = isEnabled ? 1 : 0.45
+      updateColors()
+    }
+  }
+
+  override func mouseEntered(with event: NSEvent) {
+    isHovered = true
+    updateColors()
+  }
+
+  override func mouseExited(with event: NSEvent) {
+    isHovered = false
+    updateColors()
+  }
+
+  /// Tracks the click until the mouse-up, so it returns only once the press is over.
+  override func mouseDown(with event: NSEvent) {
+    isPressed = isEnabled
+    updateColors()
+    super.mouseDown(with: event)
+    isPressed = false
+    updateColors()
+  }
+
+  override func viewDidChangeEffectiveAppearance() {
+    super.viewDidChangeEffectiveAppearance()
+    updateColors()
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    updateColors()
+  }
+
+  var fillAlpha: CGFloat {
+    switch (isEnabled, isPressed, isHovered) {
+    case (true, true, _): style.buttonPressedAlpha
+    case (true, false, true): style.buttonHoverAlpha
+    default: style.cardFillAlpha
+    }
+  }
+
+  private func updateColors() {
+    guard let layer else { return }
+
+    effectiveAppearance.performAsCurrentDrawingAppearance {
+      layer.cornerRadius = style.buttonCornerRadius
+      layer.borderWidth = 1
+      layer.backgroundColor = NSColor.labelColor.withAlphaComponent(fillAlpha).cgColor
+      layer.borderColor = NSColor.labelColor.withAlphaComponent(style.cardOutlineAlpha).cgColor
+    }
+  }
+}
+
+extension NSAttributedString {
+  fileprivate static func + (lhs: NSAttributedString, rhs: NSAttributedString) -> NSAttributedString {
+    let joined = NSMutableAttributedString(attributedString: lhs)
+
+    joined.append(rhs)
+
+    return joined
+  }
+}
+
+extension NSTextField {
+  /// Lays out wrapping text below `top` across `width`, and returns the height it adds.
+  fileprivate func place(below top: CGFloat, width: CGFloat, spacing: CGFloat) -> CGFloat {
+    let insets = alignmentRectInsets
+    let frameWidth = width + insets.left + insets.right
+    let height = sizeThatFits(NSSize(width: frameWidth, height: .greatestFiniteMagnitude)).height
+
+    setFrameSize(NSSize(width: frameWidth, height: height))
+    setAlignmentOrigin(NSPoint(x: 0, y: top + spacing))
+
+    return spacing + alignmentSize.height
   }
 }
 
@@ -333,246 +787,5 @@ extension NSView {
   /// Assumes a flipped superview.
   fileprivate func setAlignmentOrigin(_ origin: NSPoint) {
     setFrameOrigin(NSPoint(x: origin.x - alignmentRectInsets.left, y: origin.y - alignmentRectInsets.top))
-  }
-}
-
-final class LevelBar: NSView {
-  private let style: DetailStyle
-  private(set) var value: DetailRow.Value?
-  private var isStale = false
-
-  init(style: DetailStyle) {
-    self.style = style
-
-    super.init(frame: .zero)
-
-    setAccessibilityElement(false)
-  }
-
-  @available(*, unavailable)
-  required init?(coder: NSCoder) {
-    fatalError("LevelBar is not loaded from a nib")
-  }
-
-  func show(_ value: DetailRow.Value?, isStale: Bool) {
-    guard value != self.value || isStale != self.isStale else { return }
-
-    self.value = value
-    self.isStale = isStale
-    needsDisplay = true
-  }
-
-  override func draw(_ dirtyRect: NSRect) {
-    let radius = bounds.height / 2
-    let pixel = 1 / (window?.backingScaleFactor ?? 2)
-
-    NSColor.labelColor.withAlphaComponent(style.trackAlpha).setFill()
-    NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
-
-    guard let value else { return }
-
-    let fill = NSRect(x: 0, y: 0, width: max(pixel, bounds.width * value.fraction), height: bounds.height)
-
-    style.barColor(for: value).withAlphaComponent(isStale ? style.staleAlpha : 1).setFill()
-    NSBezierPath(roundedRect: fill, xRadius: radius, yRadius: radius).fill()
-  }
-}
-
-final class HistoryChartView: NSView {
-  private let title: String
-  private let style: DetailStyle
-  private(set) var content: HistoryChart?
-  private(set) var drawCount = 0
-
-  init(title: String, style: DetailStyle) {
-    self.title = title
-    self.style = style
-
-    super.init(frame: NSRect(x: 0, y: 0, width: style.contentWidth, height: style.historyHeight))
-
-    setAccessibilityElement(true)
-    setAccessibilityRole(.image)
-  }
-
-  @available(*, unavailable)
-  required init?(coder: NSCoder) {
-    fatalError("HistoryChartView is not loaded from a nib")
-  }
-
-  func show(_ content: HistoryChart?) {
-    guard content != self.content else { return }
-
-    self.content = content
-    needsDisplay = true
-
-    setAccessibilityLabel("\(title) history. \(content?.spokenSummary ?? "")")
-  }
-
-  nonisolated static func bars(_ levels: [Double?], in box: CGRect, spacing: CGFloat, pixel: CGFloat) -> [CGRect] {
-    let slotWidth = box.width / CGFloat(levels.count)
-
-    return levels.enumerated().compactMap { slot, level in
-      level.map { level in
-        CGRect(
-          x: box.minX + CGFloat(slot) * slotWidth,
-          y: box.minY,
-          width: max(pixel, slotWidth - spacing),
-          height: max(pixel, box.height * min(level, 100) / 100)
-        )
-      }
-    }
-  }
-
-  override func draw(_ dirtyRect: NSRect) {
-    drawCount += 1
-
-    guard let content, let context = NSGraphicsContext.current else { return }
-
-    let pixel = 1 / (window?.backingScaleFactor ?? 2)
-    let bars = Self.bars(content.levels, in: bounds, spacing: style.historyBarSpacing, pixel: pixel)
-    let shape = NSBezierPath()
-
-    // clipping to an empty path leaves the whole view drawable, and the gradient would fill it
-    guard !bars.isEmpty else { return }
-
-    for bar in bars {
-      shape.append(NSBezierPath(rect: bar))
-    }
-
-    NSGraphicsContext.saveGraphicsState()
-    context.cgContext.setAlpha(content.isStale ? style.staleAlpha : 1)
-    shape.addClip()
-    NSGradient(starting: style.historyGradient.bottom, ending: style.historyGradient.top)?.draw(in: bounds, angle: 90)
-    NSGraphicsContext.restoreGraphicsState()
-  }
-}
-
-/// Each core's line is its own view, because one view for all of them is too large to draw without Metal.
-final class CoreChartView: NSView {
-  private let title: String
-  private let style: DetailStyle
-  private(set) var content: CoreChart?
-  private lazy var missing = TextLine("No per-core values", font: style.captionFont)
-  private let groups: [(kind: CoreKind, rows: [CoreRowView])]
-
-  init(title: String, kinds: [CoreKind]?, style: DetailStyle) {
-    let names = [(kind: CoreKind.performance, name: "P-Core"), (kind: .efficiency, name: "E-Core")]
-    let sizes = names.map { group in kinds?.count { $0 == group.kind } ?? 0 }
-    let tops = Self.rowTops(sizes: sizes, rowHeight: style.coreRowHeight, groupSpacing: style.coreGroupSpacing)
-    let height = Self.height(sizes: sizes, rowHeight: style.coreRowHeight, groupSpacing: style.coreGroupSpacing)
-
-    self.title = title
-    self.style = style
-
-    self.groups = zip(zip(names, sizes).filter { $1 > 0 }.map(\.0), tops).map { group, tops in
-      let rows = tops.enumerated().map { index, top in
-        let row = CoreRowView(name: "\(group.name) #\(index + 1)", style: style)
-
-        row.setFrameOrigin(NSPoint(x: 0, y: height - top - style.coreRowHeight))
-
-        return row
-      }
-
-      return (group.kind, rows)
-    }
-
-    super.init(frame: NSRect(x: 0, y: 0, width: style.contentWidth, height: height))
-
-    groups.flatMap(\.rows).forEach(addSubview)
-    setAccessibilityElement(true)
-    setAccessibilityRole(.image)
-  }
-
-  @available(*, unavailable)
-  required init?(coder: NSCoder) {
-    fatalError("CoreChartView is not loaded from a nib")
-  }
-
-  func show(_ content: CoreChart) {
-    guard content != self.content else { return }
-
-    for group in groups {
-      let shares = content.cores.map { group.kind == .performance ? $0.performance : $0.efficiency } ?? []
-
-      for (index, row) in group.rows.enumerated() {
-        row.show(share: index < shares.count ? shares[index] : nil, isStale: content.isStale)
-      }
-    }
-
-    self.content = content
-
-    setAccessibilityLabel("\(title) per core. \(content.spokenSummary)")
-  }
-
-  nonisolated static func rowTops(sizes: [Int], rowHeight: CGFloat, groupSpacing: CGFloat) -> [[CGFloat]] {
-    var top: CGFloat = 0
-
-    return sizes.filter { $0 > 0 }.map { count in
-      defer { top += groupSpacing }
-
-      return (0..<count).map { _ in
-        defer { top += rowHeight }
-
-        return top
-      }
-    }
-  }
-
-  nonisolated static func height(sizes: [Int], rowHeight: CGFloat, groupSpacing: CGFloat) -> CGFloat {
-    guard let last = rowTops(sizes: sizes, rowHeight: rowHeight, groupSpacing: groupSpacing).last?.last else {
-      return rowHeight
-    }
-
-    return last + rowHeight
-  }
-
-  override func draw(_ dirtyRect: NSRect) {
-    guard groups.isEmpty, let context = NSGraphicsContext.current?.cgContext else { return }
-
-    context.textMatrix = .identity
-    context.setFillColor(NSColor.secondaryLabelColor.cgColor)
-    missing.draw(at: CGPoint(x: 0, y: (bounds.height - style.captionFont.capHeight) / 2), in: context)
-  }
-}
-
-final class CoreRowView: NSView {
-  let name: String
-  let bar: LevelBar
-  private let label: TextLine
-  private let style: DetailStyle
-
-  init(name: String, style: DetailStyle) {
-    self.name = name
-    self.bar = LevelBar(style: style)
-    self.label = TextLine(name, font: style.labelFont)
-    self.style = style
-
-    super.init(frame: NSRect(x: 0, y: 0, width: style.contentWidth, height: style.coreRowHeight))
-
-    bar.frame = NSRect(
-      x: style.coreBarStart,
-      y: (style.coreRowHeight - style.barHeight) / 2,
-      width: style.contentWidth - style.coreBarStart,
-      height: style.barHeight
-    )
-
-    addSubview(bar)
-  }
-
-  @available(*, unavailable)
-  required init?(coder: NSCoder) {
-    fatalError("CoreRowView is not loaded from a nib")
-  }
-
-  func show(share: Double?, isStale: Bool) {
-    bar.show(share.map { DetailRow.Value(amount: Int($0.rounded()), unit: .percent) }, isStale: isStale)
-  }
-
-  override func draw(_ dirtyRect: NSRect) {
-    guard let context = NSGraphicsContext.current?.cgContext else { return }
-
-    context.textMatrix = .identity
-    context.setFillColor(NSColor.labelColor.cgColor)
-    label.draw(at: CGPoint(x: 0, y: (bounds.height - style.labelFont.capHeight) / 2), in: context)
   }
 }

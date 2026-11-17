@@ -40,12 +40,50 @@ public struct MetricValue: Equatable, Sendable {
   public let unit: MetricUnit
   public let cores: CoreUtilization?
   public let split: CPUTimeSplit?
+  public let memory: MemoryAmount?
+  public let temperatures: [PartTemperature]?
 
-  public init(_ value: Double, _ unit: MetricUnit, cores: CoreUtilization? = nil, split: CPUTimeSplit? = nil) {
+  public init(
+    _ value: Double,
+    _ unit: MetricUnit,
+    cores: CoreUtilization? = nil,
+    split: CPUTimeSplit? = nil,
+    memory: MemoryAmount? = nil,
+    temperatures: [PartTemperature]? = nil
+  ) {
     self.value = value
     self.unit = unit
     self.cores = cores
     self.split = split
+    self.memory = memory
+    self.temperatures = temperatures
+  }
+}
+
+public struct MemoryAmount: Equatable, Sendable {
+  public let usedBytes: UInt64
+  public let installedBytes: UInt64
+
+  public init(usedBytes: UInt64, installedBytes: UInt64) {
+    self.usedBytes = usedBytes
+    self.installedBytes = installedBytes
+  }
+}
+
+public enum ChipPart: Equatable, Sendable {
+  case cpu
+}
+
+/// The coolest and hottest of the sensors read for one part of the chip.
+public struct PartTemperature: Equatable, Sendable {
+  public let part: ChipPart
+  public let coolest: Double
+  public let hottest: Double
+
+  public init(part: ChipPart, coolest: Double, hottest: Double) {
+    self.part = part
+    self.coolest = coolest
+    self.hottest = hottest
   }
 }
 

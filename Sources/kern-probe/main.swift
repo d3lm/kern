@@ -204,11 +204,19 @@ func describe(_ quantity: MetricQuantity) -> String {
 func describe(_ state: SampleState) -> String {
   switch state {
   case .valid(let reading):
-    switch (reading.unit, reading.split) {
-    case (.percent, let split?):
+    switch (reading.unit, reading.split, reading.memory) {
+    case (.percent, let split?, _):
       String(format: "%5.1f %%  (user %5.1f %%, system %5.1f %%)", reading.value, split.user, split.system)
-    case (.percent, nil): String(format: "%5.1f %%", reading.value)
-    case (.celsius, _): String(format: "%5.1f °C", reading.value)
+    case (.percent, nil, let memory?):
+      String(
+        format: "%5.1f %%  (%.2f of %.2f GiB)", reading.value, Double(memory.usedBytes) / 1_073_741_824,
+        Double(memory.installedBytes) / 1_073_741_824)
+    case (.percent, nil, nil): String(format: "%5.1f %%", reading.value)
+    case (.celsius, _, _):
+      String(format: "%5.1f °C", reading.value)
+        + (reading.temperatures ?? []).map {
+          String(format: "  (%@ %.1f to %.1f °C)", "\($0.part)", $0.coolest, $0.hottest)
+        }.joined()
     }
   case .unavailable(.notStarted):
     "unavailable (not started)"

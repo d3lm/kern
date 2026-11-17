@@ -7,12 +7,13 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
   private var statusItem: StatusItemController?
 
   public func applicationDidFinishLaunching(_ notification: Notification) {
-    let coordinator = MetricsCoordinator(providers: Self.providers())
+    let (chip, providers) = Self.providers()
+    let coordinator = MetricsCoordinator(providers: providers)
 
     statusItem = StatusItemController(
       store: coordinator.store,
       layout: .configured(in: .standard),
-      details: DetailPopover(coordinator: coordinator)
+      details: DetailPopover(coordinator: coordinator, chip: chip)
     )
 
     coordinator.start()
@@ -20,7 +21,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     self.coordinator = coordinator
   }
 
-  private static func providers() -> [Metric: MetricProvider] {
+  private static func providers() -> (chip: ChipIdentity, providers: [Metric: MetricProvider]) {
     #if DEBUG
       let launch = ContinuousClock.now
       let options: DebugLaunchOptions
@@ -44,7 +45,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       .memoryPressure: MemoryPressureSensor(),
     ]
 
-    return Dictionary(
+    let providers = Dictionary(
       uniqueKeysWithValues: sensors.map { metric, sensor in
         #if DEBUG
           let sensor = options.sensor(sensor, for: metric, launchedAt: launch)
@@ -52,5 +53,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         return (metric, MetricProvider(sensor: sensor))
       })
+
+    return (chip, providers)
   }
 }

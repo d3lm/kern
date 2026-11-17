@@ -1,7 +1,7 @@
 // Prints the CPU time and wakeups a process has used since it started, from the same kernel counters
 // Activity Monitor and powermetrics read.
 //
-// Usage: swift Scripts/process-cost.swift <pid>
+// Run it as `swift Scripts/process-cost.swift <pid>`.
 
 import Foundation
 

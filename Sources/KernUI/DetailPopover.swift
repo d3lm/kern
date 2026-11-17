@@ -17,12 +17,14 @@ final class DetailPopover {
 
   private let coordinator: MetricsCoordinator<ContinuousClock>
   private let sources: [Metric: MetricSource]
+  private let chip: String?
   private let style = DetailStyle()
   private var open: Open?
 
-  init(coordinator: MetricsCoordinator<ContinuousClock>) {
+  init(coordinator: MetricsCoordinator<ContinuousClock>, chip: ChipIdentity) {
     self.coordinator = coordinator
     self.sources = Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, coordinator.source(of: $0)) })
+    self.chip = chip.name
   }
 
   var isShown: Bool { open != nil }
@@ -42,7 +44,7 @@ final class DetailPopover {
     let interval = signposter.beginInterval("open popover")
     let start = ContinuousClock.now
     let store = coordinator.store
-    let content = DetailView(sources: sources, style: style)
+    let content = DetailView(sources: sources, chip: chip, style: style)
     let panel = DetailPanel(content: content, style: style)
 
     coordinator.areDetailsVisible = true
@@ -119,7 +121,7 @@ final class DetailPopover {
     }
   }
 
-  /// Clicks on the item are left to its action, which closes the panel; closing here too would reopen it.
+  /// Clicks on the item are left to its action, which closes the panel. Closing here too would reopen it.
   private func monitors(closingOnClicksOutside panel: NSPanel, and button: NSButton) -> [Any] {
     let clicks: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
 

@@ -50,6 +50,11 @@ struct TemperatureSensorTests {
     await startedProvider(reads.map { .success($0) })
   }
 
+  /// Every sensor at the same temperature, so the CPU's range is that one temperature.
+  func celsius(_ value: Double) -> MetricValue {
+    MetricValue(value, .celsius, temperatures: [PartTemperature(part: .cpu, coolest: value, hottest: value)])
+  }
+
   func m1Max(at celsius: Double, _ overrides: [String: Double] = [:]) -> [String: Double] {
     Dictionary(uniqueKeysWithValues: Self.m1MaxSensors.map { ($0, celsius) }).merging(overrides) { $1 }
   }
@@ -65,7 +70,10 @@ struct TemperatureSensorTests {
 
     let sample = await provider.sample()
 
-    #expect(sample.state == .valid(MetricValue(71.5, .celsius)))
+    #expect(
+      sample.state
+        == .valid(
+          MetricValue(71.5, .celsius, temperatures: [PartTemperature(part: .cpu, coolest: 60, hottest: 71.5)])))
     #expect(sample.source == SourceID("temperature.smc.cpu"))
     #expect(sample.quantity == .temperature)
     #expect(await provider.lastSuccessfulSample == sample)
@@ -75,7 +83,7 @@ struct TemperatureSensorTests {
   @Test func sensorsOutsideTheMapDoNotContributeToTheValue() async {
     let provider = await startedProvider([m1Max(at: 60, ["TB0T": 125, "TH0x": 110, "TaLP": 90, "Tg05": 99])])
 
-    #expect(await provider.sample().state == .valid(MetricValue(60, .celsius)))
+    #expect(await provider.sample().state == .valid(celsius(60)))
   }
 
   @Test(arguments: [
@@ -119,8 +127,8 @@ struct TemperatureSensorTests {
   @Test func valuesAtTheEdgesOfThePlausibleRangeAreAccepted() async {
     let provider = await startedProvider([m1Max(at: 10), m1Max(at: 10, ["Tp0b": 130])])
 
-    #expect(await provider.sample().state == .valid(MetricValue(10, .celsius)))
-    #expect(await provider.sample().state == .valid(MetricValue(130, .celsius)))
+    #expect(await provider.sample().state == .valid(celsius(10)))
+    #expect(await provider.sample().value?.temperatures == [PartTemperature(part: .cpu, coolest: 10, hottest: 130)])
   }
 
   @Test func readMissingASensorFails() async {
@@ -150,7 +158,7 @@ struct TemperatureSensorTests {
 
     let recovered = await provider.sample()
 
-    #expect(recovered.state == .valid(MetricValue(55, .celsius)))
+    #expect(recovered.state == .valid(celsius(55)))
     #expect(await provider.errorState == nil)
   }
 

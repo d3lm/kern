@@ -15,9 +15,14 @@ A lightweight macOS menu-bar monitor for Apple Silicon. Kern shows CPU temperatu
 ## Getting started
 
 ```sh
-swift build -c release --arch arm64    # build
-swift test                             # run the tests
-swift run kern-probe                   # show what Kern reads on this Mac
+# build
+swift build -c release --arch arm64
+
+# run the tests
+swift test
+
+# show what Kern reads on this Mac
+swift run kern-probe
 ```
 
 The app runs as a menu-bar item with no Dock icon and no window:
@@ -35,14 +40,14 @@ By default the menu bar shows the CPU temperature, a chart of the last two minut
 
 ```sh
 defaults write dev.kern.Kern menuBarLayout '{ widgets = (gpu, cpu); showsLabels = NO; }'
-defaults delete dev.kern.Kern menuBarLayout    # back to the default
+defaults delete dev.kern.Kern menuBarLayout # back to the default
 ```
 
 Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU and GPU every 5 seconds, memory every 10, and temperature every 20, instead of every 2, 5, and 10. To keep the usual intervals in Low Power Mode, set the behavior to `override` and restart Kern.
 
 ```sh
 defaults write dev.kern.Kern lowPowerModeBehavior override
-defaults delete dev.kern.Kern lowPowerModeBehavior    # back to adaptive, the default
+defaults delete dev.kern.Kern lowPowerModeBehavior # back to adaptive, the default
 ```
 
 A sensor that fails is tried again after one interval, then after two, four, and so on, until the wait would pass a minute. Its readings return at the first retry that works.
@@ -55,29 +60,29 @@ Debug builds accept `--fail <metric>[:<seconds>]` to make a sensor fail and `--c
 $ swift run kern-probe
 chip: M1 Max
 
-$ swift run -c release kern-probe cpu    # one CPU reading every 2 seconds until Ctrl-C
+$ swift run -c release kern-probe cpu # one CPU reading every 2 seconds until Ctrl-C
 chip: M1 Max
 11:19:01  cpu.host_processor_info  utilization  unavailable (awaiting baseline)
 11:19:04  cpu.host_processor_info  utilization   58.1 %
 11:19:06  cpu.host_processor_info  utilization   62.9 %
 
-$ swift run -c release kern-probe gpu    # one GPU reading every 2 seconds until Ctrl-C
+$ swift run -c release kern-probe gpu # one GPU reading every 2 seconds until Ctrl-C
 chip: M1 Max
 14:30:56  gpu.ioreport.gpuph  active residency  unavailable (awaiting baseline)
 14:30:58  gpu.ioreport.gpuph  active residency   59.4 %
 14:31:00  gpu.ioreport.gpuph  active residency   51.9 %
 
-$ swift run -c release kern-probe temperature    # one CPU temperature every 10 seconds until Ctrl-C
+$ swift run -c release kern-probe temperature # one CPU temperature every 10 seconds until Ctrl-C
 chip: M1 Max
 15:05:46  temperature.smc.cpu  temperature   68.8 °C
 15:05:57  temperature.smc.cpu  temperature   64.6 °C
 
-$ swift run -c release kern-probe memory    # the share of memory in use every 5 seconds until Ctrl-C
+$ swift run -c release kern-probe memory # the share of memory in use every 5 seconds until Ctrl-C
 chip: M1 Max
 21:49:26  memory.host_statistics64  memory in use   86.6 %
 21:49:31  memory.host_statistics64  memory in use   86.7 %
 
-$ swift run -c release kern-probe memory-pressure    # the memory pressure every 5 seconds until Ctrl-C
+$ swift run -c release kern-probe memory-pressure # the memory pressure every 5 seconds until Ctrl-C
 chip: M1 Max
 21:59:22  memory.memorystatus_level  memory pressure   70.0 %
 21:59:27  memory.memorystatus_level  memory pressure   66.0 %
@@ -92,7 +97,7 @@ The temperature is the hottest of the CPU die sensors that have been verified fo
 The `metrics` command runs all the metrics the way the app does, each on its own schedule, and prints what the app would read for a metric each time it is sampled:
 
 ```sh
-$ swift run -c release kern-probe metrics    # until Ctrl-C or Ctrl-D
+$ swift run -c release kern-probe metrics # until Ctrl-C or Ctrl-D
 chip: M1 Max
 16:04:32  cpu          unavailable (awaiting baseline)  history 1/60, 1 gap
 16:04:32  temperature   69.3 °C

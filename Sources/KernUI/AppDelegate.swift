@@ -44,6 +44,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     self.details = details
     self.coordinator = coordinator
+
+    #if DEBUG
+      if let delay = Self.debugOptions.settingsDelay {
+        Task { [weak self] in
+          try? await Task.sleep(for: delay)
+          self?.showSettings()
+        }
+      }
+    #endif
   }
 
   public func applicationWillTerminate(_ notification: Notification) {
@@ -56,16 +65,24 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     let settings =
       settings
       ?? SettingsWindowController(preferences: preferences, loginItem: loginItem, store: coordinator.store) {
-        [weak self] in self?.settings = nil
+        [weak self] in
+        self?.settings = nil
+
+        self?.applySampling()
       }
 
     self.settings = settings
 
+    applySampling()
     settings.show()
   }
 
+  private func applySampling() {
+    coordinator?.apply(preferences.preferences, isSettingsOpen: settings != nil)
+  }
+
   private func apply(_ preferences: Preferences) {
-    coordinator?.apply(preferences)
+    coordinator?.apply(preferences, isSettingsOpen: settings != nil)
     statusItem?.show(layout: preferences.shownMenuBarLayout, temperatureUnit: preferences.temperatureUnit)
 
     details?.temperatureUnit = preferences.temperatureUnit
@@ -73,17 +90,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     settings?.show(preferences)
   }
 
-  private static func providers() -> (chip: ChipIdentity, providers: [Metric: MetricProvider]) {
-    #if DEBUG
-      let launch = ContinuousClock.now
-      let options: DebugLaunchOptions
-
+  #if DEBUG
+    private static let debugOptions: DebugLaunchOptions = {
       do {
-        options = try DebugLaunchOptions(arguments: CommandLine.arguments)
+        return try DebugLaunchOptions(arguments: CommandLine.arguments)
       } catch {
         fatalError("invalid launch argument: \(error)")
       }
+    }()
+  #endif
 
+  private static func providers() -> (chip: ChipIdentity, providers: [Metric: MetricProvider]) {
+    #if DEBUG
+      let launch = ContinuousClock.now
+      let options = debugOptions
       let chip = options.chip ?? ChipIdentifier.current
     #else
       let chip = ChipIdentifier.current
@@ -95,6 +115,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       .temperature: TemperatureSensor(chip: chip),
       .memory: MemorySensor(),
       .memoryPressure: MemoryPressureSensor(),
+      .kern: ProcessUsageSensor(),
     ]
 
     let providers = Dictionary(

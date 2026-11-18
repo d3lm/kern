@@ -63,9 +63,7 @@ final class MenuBarView: NSView {
   }
 
   private var widths: [CGFloat] {
-    widgetViews.indices.map { index in
-      index == 0 ? widgetViews[index].contentWidth : widgetViews[index].widestWidth
-    }
+    widgetViews.map(\.contentWidth)
   }
 
   override var intrinsicContentSize: NSSize {
@@ -100,8 +98,11 @@ final class MenuBarView: NSView {
     }
   }
 
+  /// Resizes the view itself too, because a view placed by frame, as on the shelf in Settings, has no constraint
+  /// that would follow its intrinsic size.
   private func widthsChanged() {
     invalidateIntrinsicContentSize()
+    setFrameSize(intrinsicContentSize)
     layOutWidgets()
   }
 

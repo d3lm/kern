@@ -33,6 +33,8 @@ public enum MetricQuantity: Sendable {
   case temperature
   case memoryUsage
   case memoryPressure
+  /// Is the CPU use of one process on the scale of Activity Monitor's % CPU, where 100% is one busy logical CPU.
+  case processUsage
 }
 
 public struct MetricValue: Equatable, Sendable {
@@ -42,6 +44,8 @@ public struct MetricValue: Equatable, Sendable {
   public let split: CPUTimeSplit?
   public let memory: MemoryAmount?
   public let temperatures: [PartTemperature]?
+  /// Holds a process's physical footprint in bytes, which Activity Monitor shows as its Memory.
+  public let footprintBytes: UInt64?
 
   public init(
     _ value: Double,
@@ -49,7 +53,8 @@ public struct MetricValue: Equatable, Sendable {
     cores: CoreUtilization? = nil,
     split: CPUTimeSplit? = nil,
     memory: MemoryAmount? = nil,
-    temperatures: [PartTemperature]? = nil
+    temperatures: [PartTemperature]? = nil,
+    footprintBytes: UInt64? = nil
   ) {
     self.value = value
     self.unit = unit
@@ -57,6 +62,7 @@ public struct MetricValue: Equatable, Sendable {
     self.split = split
     self.memory = memory
     self.temperatures = temperatures
+    self.footprintBytes = footprintBytes
   }
 }
 

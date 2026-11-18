@@ -111,7 +111,7 @@ final class MenuBarEditorTests {
     #expect(placed.alphaValue == 1)
   }
 
-  @Test func leadingTemperatureLandsAtTheWidthItHasInItsNewPlace() async throws {
+  @Test func temperatureMovedFromTheFrontLandsAsWideAsItsReading() async throws {
     let store = MetricsStore(intervals: [.temperature: .seconds(10)])
     let pane = MenuBarSettings(preferences: preferences, store: store)
     let editor = pane.editor
@@ -159,7 +159,7 @@ final class MenuBarEditorTests {
     let final = try #require(editor.barView?.layoutFrames.last)
 
     #expect(landed.widget == .temperature)
-    #expect(final.width == landed.widestWidth)
+    #expect(final.width == MenuBarStyle().textWidth("50°", in: MenuBarStyle().valueFont))
     #expect(landed.frame == final)
     #expect(ghost.image?.size == final.size)
 
@@ -173,7 +173,7 @@ final class MenuBarEditorTests {
     let gpu = try center(of: .gpu)
     let out = NSPoint(x: gpu.x, y: editor.shelf.frame.midY)
 
-    #expect(editor.shelfItems.isEmpty && !editor.emptyShelf.isHidden)
+    #expect(editor.shelfItems.map(\.widget) == [.kern])
 
     try drag(from: gpu, through: [NSPoint(x: gpu.x, y: gpu.y + 10), out]) {
       #expect(shownWidgets() == [.temperature, .cpu, .memory])
@@ -182,8 +182,23 @@ final class MenuBarEditorTests {
 
     #expect(layout.widgets == [.temperature, .cpu, .memory])
     #expect(layout.order == MenuBarLayout.standard.order)
-    #expect(editor.shelfItems.map(\.widget) == [.gpu])
+    #expect(editor.shelfItems.map(\.widget) == [.gpu, .kern])
     #expect(editor.emptyShelf.isHidden)
+  }
+
+  @Test func kernUsageWaitsOnTheShelfUndimmedAndTheShelfEmptiesOnceItIsInTheBar() throws {
+    let item = try #require(editor.shelfItems.first)
+
+    #expect(item.widget == .kern && item.name.stringValue == "Kern usage")
+    #expect(item.menuBarView.alphaValue == 1 && item.menuBarView.toolTip == nil)
+    #expect(editor.emptyShelf.isHidden)
+
+    let memory = editor.frame(of: try #require(editor.barView?.widgetViews.last))
+
+    try drag(from: try center(of: .kern), through: [NSPoint(x: memory.maxX + 4, y: memory.midY)])
+
+    #expect(layout.widgets == [.temperature, .cpu, .gpu, .memory, .kern])
+    #expect(editor.shelfItems.isEmpty && !editor.emptyShelf.isHidden)
   }
 
   @Test func widgetDraggedInFromTheShelfIsShownWhereItIsDropped() throws {
@@ -194,7 +209,7 @@ final class MenuBarEditorTests {
     try drag(from: try center(of: .gpu), through: [NSPoint(x: temperature.minX + 1, y: temperature.midY)])
 
     #expect(layout.widgets == [.gpu, .temperature, .cpu, .memory])
-    #expect(editor.shelfItems.isEmpty)
+    #expect(editor.shelfItems.map(\.widget) == [.kern])
   }
 
   @Test func widgetDraggedFromTheShelfAndLetGoOutsideTheBarStaysHidden() throws {
@@ -207,7 +222,7 @@ final class MenuBarEditorTests {
     try drag(from: gpu, through: [NSPoint(x: gpu.x + 40, y: gpu.y)])
 
     #expect(!layout.isShown(.gpu))
-    #expect(editor.shelfItems.map(\.widget) == [.gpu])
+    #expect(editor.shelfItems.map(\.widget) == [.gpu, .kern])
     #expect(editor.shelfItems.first?.alphaValue == 1)
     #expect(changes == 0)
   }
@@ -358,7 +373,7 @@ final class MenuBarEditorTests {
     #expect(
       elements.map { $0.accessibilityLabel() } == [
         "Temperature, in the menu bar, 1 of 3", "CPU, in the menu bar, 2 of 3", "Memory, in the menu bar, 3 of 3",
-        "GPU, available",
+        "GPU, available", "Kern usage, available",
       ])
 
     #expect(elements.allSatisfy { $0.isAccessibilityElement() && $0.accessibilityRole() == .button })
@@ -402,6 +417,82 @@ final class MenuBarEditorTests {
     #expect(item.menuBarView.widgetViews.first?.content == .level(.measuring, isStale: false))
     #expect(item.menuBarView.alphaValue < 1)
     #expect(item.menuBarView.toolTip == "Hidden from the menu bar while GPU activity is off")
+  }
+
+  @Test func kernUsageOnTheShelfIsADashOnlyUntilItsFirstReading() throws {
+    let store = MetricsStore(intervals: [.kern: .seconds(2)])
+    let pane = MenuBarSettings(preferences: preferences, store: store)
+
+    defer { pane.stop() }
+
+    let item = try #require(pane.editor.shelfItems.first)
+
+    #expect(item.widget == .kern)
+    #expect(item.menuBarView.widgetViews.first?.content == .noReading)
+
+    store.record(sample(usage(3.2, megabytes: 28), at: .now), for: .kern)
+
+    #expect(item.menuBarView.widgetViews.first?.content == .stacked("3.2%", "28 MB", isStale: false))
+  }
+
+  /// Two widths that differ by an odd number of points can be centered on each other only on a display's pixels.
+  @Test func widgetOnTheShelfIsCenteredUnderItsNameToThePixel() throws {
+    let store = MetricsStore(intervals: [.kern: .seconds(2), .temperature: .seconds(10)])
+    let pane = MenuBarSettings(preferences: preferences, store: store)
+
+    defer { pane.stop() }
+
+    preferences.onChange = { pane.show($0) }
+
+    preferences.update { $0.menuBarLayout.setShown(false, .temperature) }
+
+    for view in window.contentView?.subviews ?? [] {
+      view.removeFromSuperview()
+    }
+
+    window.contentView?.addSubview(pane.form)
+
+    let pixel = 1 / window.backingScaleFactor
+
+    for state in [nil, value(63, .celsius), value(103, .celsius)] as [SampleState?] {
+      if let state { store.record(sample(state, at: .now), for: .temperature) }
+
+      for item in pane.editor.shelfItems {
+        let offset = abs(item.menuBarView.frame.midX - item.name.frame.midX)
+
+        #expect(offset <= pixel / 2, "\(item.widget) \(String(describing: state))")
+      }
+    }
+  }
+
+  @Test func readingOnTheShelfStaysCenteredUnderItsNameAndKeepsTheShelfSpacingAsItsWidthChanges() throws {
+    let store = MetricsStore(intervals: [.temperature: .seconds(10), .kern: .seconds(2)])
+    let pane = MenuBarSettings(preferences: preferences, store: store)
+
+    defer { pane.stop() }
+
+    preferences.onChange = { pane.show($0) }
+
+    preferences.update { $0.menuBarLayout.setShown(false, .temperature) }
+
+    func check(_ moment: String) throws {
+      let items = pane.editor.shelfItems
+      let temperature = try #require(items.first { $0.widget == .temperature })
+      let widget = try #require(temperature.menuBarView.widgetViews.first)
+
+      #expect(temperature.menuBarView.frame.width == widget.frame.width, "\(moment)")
+      #expect(abs(temperature.menuBarView.frame.midX - temperature.name.frame.midX) <= 0.5, "\(moment)")
+      #expect(Set(zip(items, items.dropFirst()).map { $1.frame.minX - $0.frame.maxX }).count == 1, "\(moment)")
+    }
+
+    store.record(sample(value(63, .celsius), at: .now), for: .temperature)
+    try check("63°")
+
+    store.record(sample(value(103, .celsius), at: .now), for: .temperature)
+    try check("103°")
+
+    store.record(sample(usage(3.2, megabytes: 28), at: .now), for: .kern)
+    try check("Kern usage shown")
   }
 
   @Test func widgetOfAMetricThatIsOffIsDimmedAndSaysWhy() throws {

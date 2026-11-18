@@ -91,42 +91,17 @@ final class MenuBarViewTests {
     #expect(unlabelled[.gpu].frame.width == labelled[.gpu].frame.width - column("GPU"))
   }
 
-  @Test func everyTemperatureFitsTheWidthReservedForIt() {
-    let texts = (0...999).map { WidgetContent.text(for: MetricValue(Double($0), .celsius), temperatureUnit: .celsius) }
-    let widest = (texts + [WidgetContent.unavailableText]).map { style.textWidth($0, in: style.valueFont) }.max()!
-
-    #expect(widest <= style.valueWidth(of: .temperature))
+  func gapsBetweenFrames(_ view: MenuBarView) -> [CGFloat] {
+    zip(view.widgetViews, view.widgetViews.dropFirst()).map { $1.frame.minX - $0.frame.maxX }
   }
 
   func distancesFromTrailingEdge(_ view: MenuBarView) -> [CGFloat] {
     view.widgetViews.map { view.intrinsicContentSize.width - $0.frame.maxX }
   }
 
-  @Test(arguments: [[Widget.temperature, .cpu, .gpu], [.cpu, .temperature, .gpu], [.gpu, .cpu, .temperature]])
-  func neighborsKeepTheirPlaceWhileValuesMoveThroughTheirWholeRange(widgets: [Widget]) {
+  @Test(arguments: [[Widget.temperature, .cpu], [.cpu, .temperature], [.gpu, .temperature, .cpu]])
+  func temperatureIsAsWideAsItsTextWhereverItIs(widgets: [Widget]) {
     let view = menuBarView(MenuBarLayout(widgets: widgets, showsLabels: true)!)
-    let distances = distancesFromTrailingEdge(view)
-
-    for celsius in [nil, 5, 47, 130] as [Double?] {
-      let samples = celsius.map { [sample(value($0, .celsius))] } ?? []
-
-      view.show(readings(.temperature, after: samples), for: .temperature)
-
-      #expect(distancesFromTrailingEdge(view) == distances)
-    }
-
-    for percent in [nil, 0, 5, 50, 100] as [Double?] {
-      let samples = percent.map { [sample(value($0))] } ?? []
-
-      view.show(readings(.gpu, after: samples), for: .gpu)
-      view.show(readings(.cpu, after: samples), for: .cpu)
-
-      #expect(distancesFromTrailingEdge(view) == distances)
-    }
-  }
-
-  @Test func leadingTemperatureIsAsWideAsItsTextSoTheItemHasEvenMargins() {
-    let view = menuBarView()
 
     for (celsius, text) in [(nil, "—"), (67.0, "67°"), (103.0, "103°")] as [(Double?, String)] {
       let samples = celsius.map { [sample(value($0, .celsius))] } ?? [sample(failed)]
@@ -134,16 +109,77 @@ final class MenuBarViewTests {
       view.show(readings(.temperature, after: samples), for: .temperature)
 
       #expect(view[.temperature].frame.width == style.textWidth(text, in: style.valueFont), "\(text)")
-      #expect(view[.cpu].frame.minX == view[.temperature].frame.maxX + style.widgetSpacing, "\(text)")
+      #expect(gapsBetweenFrames(view).allSatisfy { $0 == style.widgetSpacing }, "\(text)")
     }
   }
 
-  @Test func temperatureAfterAnotherWidgetKeepsRoomForThreeDigits() {
-    let view = menuBarView(MenuBarLayout(widgets: [.cpu, .temperature], showsLabels: true)!)
+  @Test(arguments: [[Widget.kern, .cpu], [.cpu, .kern], [.gpu, .kern, .cpu]])
+  func kernUsageIsAsWideAsItsWiderLineWhereverItIs(widgets: [Widget]) {
+    let view = menuBarView(MenuBarLayout(widgets: widgets, showsLabels: true)!)
 
-    view.show(readings(.temperature, after: [sample(value(67, .celsius))]), for: .temperature)
+    for (state, widest) in [
+      (failed, style.textWidth("—", in: style.valueFont)),
+      (usage(0.4, megabytes: 18), style.textWidth("18 MB", in: style.stackedFont)),
+      (usage(250, megabytes: 7), style.textWidth("250%", in: style.stackedFont)),
+    ] {
+      view.show(readings(.kern, after: [sample(state)]), for: .kern)
 
-    #expect(view[.temperature].frame.width == style.valueWidth(of: .temperature))
+      #expect(view[.kern].frame.width == widest, "\(state)")
+      #expect(gapsBetweenFrames(view).allSatisfy { $0 == style.widgetSpacing }, "\(state)")
+    }
+  }
+
+  /// The menu bar keeps the item's trailing edge in place, so the widgets after a reading never move.
+  @Test(arguments: [[Widget.temperature, .cpu, .gpu], [.cpu, .temperature, .gpu], [.gpu, .cpu, .temperature]])
+  func readingThatChangesWidthMovesOnlyTheWidgetsBeforeIt(widgets: [Widget]) throws {
+    let view = menuBarView(MenuBarLayout(widgets: widgets, showsLabels: true)!)
+    let reading = try #require(widgets.firstIndex(of: .temperature))
+    let distances = distancesFromTrailingEdge(view)
+
+    for celsius in [nil, 47, 130] as [Double?] {
+      let samples = celsius.map { [sample(value($0, .celsius))] } ?? []
+
+      view.show(readings(.temperature, after: samples), for: .temperature)
+
+      #expect(distancesFromTrailingEdge(view)[reading...] == distances[reading...], "\(String(describing: celsius))")
+    }
+  }
+
+  @Test(arguments: [[Widget.temperature, .cpu, .gpu], [.cpu, .temperature, .gpu], [.gpu, .cpu, .temperature]])
+  func chartsAndGaugesMoveNothingThroughTheirWholeRange(widgets: [Widget]) {
+    let view = menuBarView(MenuBarLayout(widgets: widgets, showsLabels: true)!)
+
+    view.show(readings(.temperature, after: [sample(value(47, .celsius))]), for: .temperature)
+
+    let frames = view.widgetViews.map(\.frame)
+
+    for percent in [nil, 0, 5, 50, 100] as [Double?] {
+      let samples = percent.map { [sample(value($0))] } ?? []
+
+      view.show(readings(.gpu, after: samples), for: .gpu)
+      view.show(readings(.cpu, after: samples), for: .cpu)
+
+      #expect(view.widgetViews.map(\.frame) == frames)
+    }
+  }
+
+  /// Digits are all equally wide, so a reading moves its neighbors only when it gains or loses a digit.
+  @Test func readingsThatKeepTheirNumberOfDigitsMoveNothing() {
+    let view = menuBarView(MenuBarLayout(widgets: [.cpu, .temperature, .kern, .gpu], showsLabels: true)!)
+
+    view.show(readings(.temperature, after: [sample(value(47, .celsius))]), for: .temperature)
+    view.show(readings(.kern, after: [sample(usage(0.4, megabytes: 18))]), for: .kern)
+
+    let frames = view.widgetViews.map(\.frame)
+
+    let changes = [(63.0, usage(3.2, megabytes: 28)), (99, usage(9.9, megabytes: 99)), (10, usage(12, megabytes: 10))]
+
+    for (celsius, kern) in changes {
+      view.show(readings(.temperature, after: [sample(value(celsius, .celsius))]), for: .temperature)
+      view.show(readings(.kern, after: [sample(kern)]), for: .kern)
+
+      #expect(view.widgetViews.map(\.frame) == frames, "\(celsius)° \(kern)")
+    }
   }
 
   @Test func sampleRedrawsOnlyTheWidgetOfItsMetric() {
@@ -164,6 +200,19 @@ final class MenuBarViewTests {
 
     view.show(readings(.memoryPressure, after: [sample(value(62))]), for: .memoryPressure)
     #expect(redraws(of: view) == [.memory])
+  }
+
+  @Test func kernSampleRedrawsOnlyWhenItsTextChanges() {
+    let view = menuBarView(MenuBarLayout(widgets: [.cpu, .kern], showsLabels: true)!)
+
+    view.show(readings(.kern, after: [sample(usage(0.42, megabytes: 18.1))]), for: .kern)
+    #expect(redraws(of: view) == [.kern])
+
+    view.show(readings(.kern, after: [sample(usage(0.38, megabytes: 17.9))]), for: .kern)
+    #expect(redraws(of: view) == [])
+
+    view.show(readings(.kern, after: [sample(usage(0.5, megabytes: 17.9))]), for: .kern)
+    #expect(redraws(of: view) == [.kern])
   }
 
   @Test func everyCPUSampleRedrawsTheChartOnce() {

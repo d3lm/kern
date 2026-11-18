@@ -224,6 +224,7 @@ extension Metric {
     case .gpu: "GPU"
     case .temperature: "Temperature"
     case .memory, .memoryPressure: "Memory"
+    case .kern: "Kern"
     }
   }
 
@@ -233,6 +234,7 @@ extension Metric {
       case .cpu, .temperature: "CPU"
       case .gpu: "GPU"
       case .memory, .memoryPressure: "Memory"
+      case .kern: "Kern"
       }
 
     return "\(subject) \(Self.measure(quantity).lowercased())"
@@ -253,7 +255,7 @@ extension Metric {
     switch quantity {
     case .temperature: "hottest CPU sensor"
     case .memoryPressure: "memory pressure"
-    case .utilization, .activeResidency, .memoryUsage: nil
+    case .utilization, .activeResidency, .memoryUsage, .processUsage: nil
     }
   }
 
@@ -316,7 +318,7 @@ extension Metric {
 
   private static func measure(_ quantity: MetricQuantity) -> String {
     switch quantity {
-    case .utilization: "Usage"
+    case .utilization, .processUsage: "Usage"
     case .activeResidency: "Activity"
     case .temperature: "Temperature"
     case .memoryUsage: "Used"

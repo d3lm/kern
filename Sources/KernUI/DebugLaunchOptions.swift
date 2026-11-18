@@ -13,6 +13,9 @@
 
     private(set) var failures: [Metric: Failure] = [:]
     private(set) var chip: ChipIdentity?
+    /// Holds how long after launch Settings opens by itself, which it then does without any click that could
+    /// let Kern become the active app.
+    private(set) var settingsDelay: Duration?
 
     /// Must skip unknown arguments, because macOS and Xcode pass their own.
     init(arguments: [String]) throws(InvalidArgument) {
@@ -32,6 +35,13 @@
 
           chip = ChipIdentity(brandString: brandString)
 
+        case "--settings-after":
+          guard let seconds = arguments.popFirst().flatMap(Double.init), seconds >= 0 else {
+            throw InvalidArgument(description: "--settings-after needs a number of seconds that is not negative")
+          }
+
+          settingsDelay = .seconds(seconds)
+
         default:
           continue
         }
@@ -40,7 +50,7 @@
 
     private static func failure(from value: String?) throws(InvalidArgument) -> (Metric, Failure) {
       let usage =
-        "--fail needs <metric>[:<seconds>], where <metric> is cpu, gpu, temperature, memory, or memory-pressure"
+        "--fail needs <metric>[:<seconds>], where <metric> is cpu, gpu, temperature, memory, memory-pressure, or kern"
 
       guard let parts = value?.split(separator: ":", omittingEmptySubsequences: false), parts.count <= 2,
         let metric = Metric(rawValue: String(parts[0]))

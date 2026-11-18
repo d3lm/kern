@@ -12,11 +12,13 @@ let usage = """
     temperature          CPU temperature every 10 s
     memory               Share of memory in use every 5 s
     memory-pressure      Memory pressure every 5 s
+    kern                 This process's own CPU use and memory footprint every 2 s
     temperature-sensors  Every SMC temperature as comma-separated columns, every 1 s
                          (for validating sensor maps only)
     metrics              Every metric through the coordinator, printing a metric's readings
                          from the store each time it is sampled; also stops when standard
-                         input closes
+                         input closes; kern starts disabled, as the app samples it only while
+                         its widget is in the menu bar or Settings is open
 
   Metrics commands, one per line on standard input:
     enable <metric>
@@ -29,11 +31,11 @@ let usage = """
     low-power-behavior adaptive|override
                          Slow down in Low Power Mode, or keep the configured intervals
 
-    <metric> is cpu, gpu, temperature, memory, or memory-pressure
+    <metric> is cpu, gpu, temperature, memory, memory-pressure, or kern
   """
 
 let mode = CommandLine.arguments.dropFirst().first
-let modes = ["cpu", "gpu", "temperature", "memory", "memory-pressure", "temperature-sensors", "metrics"]
+let modes = ["cpu", "gpu", "temperature", "memory", "memory-pressure", "kern", "temperature-sensors", "metrics"]
 
 if let mode, !modes.contains(mode) {
   print(usage)
@@ -63,6 +65,7 @@ case "gpu": await printReadings(of: GPUSensor(), every: .seconds(2))
 case "temperature": await printReadings(of: TemperatureSensor(chip: ChipIdentifier.current), every: .seconds(10))
 case "memory": await printReadings(of: MemorySensor(), every: .seconds(5))
 case "memory-pressure": await printReadings(of: MemoryPressureSensor(), every: .seconds(5))
+case "kern": await printReadings(of: ProcessUsageSensor(), every: .seconds(2))
 case "temperature-sensors": await printTemperatureSensors(every: .seconds(1))
 case "metrics": await printMetrics()
 default: break
@@ -112,7 +115,10 @@ func printMetrics() async {
     .temperature: MetricProvider(sensor: TemperatureSensor(chip: ChipIdentifier.current)),
     .memory: MetricProvider(sensor: MemorySensor()),
     .memoryPressure: MetricProvider(sensor: MemoryPressureSensor()),
+    .kern: MetricProvider(sensor: ProcessUsageSensor()),
   ])
+
+  coordinator.disable(.kern)
 
   let store = coordinator.store
 
@@ -222,21 +228,24 @@ func describe(_ quantity: MetricQuantity) -> String {
   case .temperature: "temperature"
   case .memoryUsage: "memory in use"
   case .memoryPressure: "memory pressure"
+  case .processUsage: "process usage"
   }
 }
 
 func describe(_ state: SampleState) -> String {
   switch state {
   case .valid(let reading):
-    switch (reading.unit, reading.split, reading.memory) {
-    case (.percent, let split?, _):
+    switch (reading.unit, reading.split, reading.memory, reading.footprintBytes) {
+    case (.percent, let split?, _, _):
       String(format: "%5.1f %%  (user %5.1f %%, system %5.1f %%)", reading.value, split.user, split.system)
-    case (.percent, nil, let memory?):
+    case (.percent, nil, let memory?, _):
       String(
         format: "%5.1f %%  (%.2f of %.2f GiB)", reading.value, Double(memory.usedBytes) / 1_073_741_824,
         Double(memory.installedBytes) / 1_073_741_824)
-    case (.percent, nil, nil): String(format: "%5.1f %%", reading.value)
-    case (.celsius, _, _):
+    case (.percent, nil, nil, let footprint?):
+      String(format: "%5.1f %%  (footprint %.1f MiB)", reading.value, Double(footprint) / 1_048_576)
+    case (.percent, nil, nil, nil): String(format: "%5.1f %%", reading.value)
+    case (.celsius, _, _, _):
       String(format: "%5.1f °C", reading.value)
         + (reading.temperatures ?? []).map {
           String(format: "  (%@ %.1f to %.1f °C)", "\($0.part)", $0.coolest, $0.hottest)

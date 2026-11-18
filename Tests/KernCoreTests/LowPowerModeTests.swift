@@ -9,6 +9,7 @@ extension MetricsCoordinatorTests {
     #expect(Metric.temperature.lowPowerInterval == .seconds(20))
     #expect(Metric.memory.lowPowerInterval == .seconds(10))
     #expect(Metric.memoryPressure.lowPowerInterval == .seconds(10))
+    #expect(Metric.kern.lowPowerInterval == .seconds(5))
   }
 
   @Test func lowPowerModeSlowsEveryMetricAndTurningItOffRestoresThemWithoutARestart() async {
@@ -18,20 +19,22 @@ extension MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 6, schedules: 5)
+    await run(until: 6, schedules: 6)
 
     coordinator.powerState.isLowPowerModeEnabled = true
 
     #expect(coordinator.store[.cpu]?.interval == .seconds(5))
     #expect(coordinator.store[.gpu]?.interval == .seconds(5))
+    #expect(coordinator.store[.kern]?.interval == .seconds(5))
     #expect(coordinator.store[.temperature]?.interval == .seconds(20))
     #expect(coordinator.store[.memoryPressure]?.interval == .seconds(10))
     #expect(coordinator.store[.memory]?.interval == .seconds(10))
 
-    await run(until: 41, schedules: 5)
+    await run(until: 41, schedules: 6)
 
     #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 11, 16, 21, 26, 31, 36, 41])
     #expect(logs[.gpu]!.reads == [0, 2, 4, 6, 11, 16, 21, 26, 31, 36, 41])
+    #expect(logs[.kern]!.reads == logs[.cpu]!.reads)
     #expect(logs[.temperature]!.reads == [0, 20, 40])
     #expect(logs[.memoryPressure]!.reads == [0, 5, 15, 25, 35])
     #expect(logs[.memory]!.reads == [0, 5, 15, 25, 35])
@@ -43,10 +46,11 @@ extension MetricsCoordinatorTests {
     #expect(coordinator.store[.memoryPressure]?.interval == .seconds(5))
     #expect(coordinator.store[.memory]?.interval == .seconds(5))
 
-    await run(until: 51, schedules: 5)
+    await run(until: 51, schedules: 6)
 
     #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 11, 16, 21, 26, 31, 36, 41, 43, 45, 47, 49, 51])
     #expect(logs[.gpu]!.reads == logs[.cpu]!.reads)
+    #expect(logs[.kern]!.reads == logs[.cpu]!.reads)
     #expect(logs[.temperature]!.reads == [0, 20, 40, 50])
     #expect(logs[.memoryPressure]!.reads == [0, 5, 15, 25, 35, 41, 46, 51])
     #expect(logs[.memory]!.reads == [0, 5, 15, 25, 35, 41, 46, 51])

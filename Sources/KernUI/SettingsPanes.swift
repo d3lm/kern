@@ -308,7 +308,9 @@ final class MenuBarSettings: SettingsPane {
       SettingsSection(
         "Menu Bar",
         info: "Drag a widget to move it, or drag it out of the menu bar to remove it. Drag a widget from Available "
-          + "into the menu bar to add it. A right-click on a widget does the same.",
+          + "into the menu bar to add it. A right-click on a widget does the same. Kern usage shows the CPU and "
+          + "memory Kern itself uses, and Kern measures them only while the widget is in the menu bar or this "
+          + "window is open.",
         content: editor, style: style),
       SettingsSection(
         "Labels",
@@ -371,6 +373,7 @@ extension Widget {
     case .cpu: "CPU"
     case .gpu: "GPU"
     case .memory: "Memory"
+    case .kern: "Kern usage"
     }
   }
 }

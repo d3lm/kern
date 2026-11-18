@@ -47,10 +47,12 @@ struct RecordingSensor: MetricSensor {
         "--fail", "gpu",
         "--fail", "temperature:30",
         "--chip", "Apple M3 Pro",
+        "--settings-after", "2.5",
       ])
 
       #expect(options.failures == [.gpu: .always, .temperature: .during(.seconds(30))])
       #expect(options.chip == .recognized(Chip(family: .m3, variant: .pro)))
+      #expect(options.settingsDelay == .milliseconds(2_500))
     }
 
     @Test func noArgumentsChangeNothing() throws {
@@ -58,6 +60,7 @@ struct RecordingSensor: MetricSensor {
 
       #expect(options.failures.isEmpty)
       #expect(options.chip == nil)
+      #expect(options.settingsDelay == nil)
     }
 
     @Test func chipThatIsNotAppleSiliconIsUnrecognized() throws {
@@ -75,6 +78,9 @@ struct RecordingSensor: MetricSensor {
       ["--fail", "gpu:ten"],
       ["--fail", "gpu:5:5"],
       ["--chip"],
+      ["--settings-after"],
+      ["--settings-after", "soon"],
+      ["--settings-after", "-1"],
     ])
     func rejectsArgumentsItCannotUse(arguments: [String]) {
       #expect(throws: DebugLaunchOptions.InvalidArgument.self) {

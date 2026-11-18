@@ -6,7 +6,7 @@
 
 Kern is pronounced [kɛʁn], like the German word for "core".
 
-A lightweight macOS menu-bar monitor for Apple Silicon. Kern shows CPU temperature, a CPU usage graph, and GPU activity in the menu bar, and is built to use almost no resources itself.
+A lightweight macOS menu-bar monitor for Apple Silicon. Kern shows CPU temperature, a CPU usage graph, GPU activity, and memory pressure in the menu bar, and is built to use almost no resources itself.
 
 <p align="center">
   <img src="assets/menu-bar.png" alt="Kern in the menu bar, showing the CPU temperature, a CPU usage chart, and gauges for GPU activity and memory pressure" width="308">
@@ -56,11 +56,11 @@ By default the menu bar shows the CPU temperature, a chart of the last two minut
 
 Kern keeps its settings in the `dev.kern.Kern` defaults domain.
 
-Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU and GPU every 5 seconds, memory every 10, and temperature every 20, unless an interval is set longer than that.
+Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU, GPU, and its own usage every 5 seconds, used memory and memory pressure every 10, and temperature every 20, unless an interval is set longer than that or Settings is set to keep the intervals.
 
 A sensor that fails is tried again after one interval, then after two, four, and so on, until the wait would pass a minute. Its readings return at the first retry that works.
 
-Debug builds accept `--fail <metric>[:<seconds>]` to make a sensor fail and `--chip "<brand string>"` to pretend to run on another chip.
+Debug builds accept `--fail <metric>[:<seconds>]` to make a sensor fail, `--chip "<brand string>"` to pretend to run on another chip, and `--settings-after <seconds>` to open Settings by itself that long after launch.
 
 `kern-probe` is a development tool that prints sensor readings in the terminal. It is not part of the app.
 
@@ -70,9 +70,9 @@ chip: M1 Max
 
 $ swift run -c release kern-probe cpu # one CPU reading every 2 seconds until Ctrl-C
 chip: M1 Max
-11:19:01  cpu.host_processor_info  utilization  unavailable (awaiting baseline)
-11:19:04  cpu.host_processor_info  utilization   58.1 %
-11:19:06  cpu.host_processor_info  utilization   62.9 %
+21:47:45  cpu.host_processor_info  utilization  unavailable (awaiting baseline)
+21:47:47  cpu.host_processor_info  utilization   53.6 %  (user  25.8 %, system  27.8 %)
+21:47:49  cpu.host_processor_info  utilization   49.6 %  (user  18.0 %, system  31.6 %)
 
 $ swift run -c release kern-probe gpu # one GPU reading every 2 seconds until Ctrl-C
 chip: M1 Max
@@ -82,23 +82,27 @@ chip: M1 Max
 
 $ swift run -c release kern-probe temperature # one CPU temperature every 10 seconds until Ctrl-C
 chip: M1 Max
-15:05:46  temperature.smc.cpu  temperature   68.8 °C
-15:05:57  temperature.smc.cpu  temperature   64.6 °C
+21:48:10  temperature.smc.cpu  temperature   67.1 °C  (cpu 63.7 to 67.1 °C)
+21:48:20  temperature.smc.cpu  temperature   70.7 °C  (cpu 66.7 to 70.7 °C)
 
 $ swift run -c release kern-probe memory # the share of memory in use every 5 seconds until Ctrl-C
 chip: M1 Max
-21:49:26  memory.host_statistics64  memory in use   86.6 %
-21:49:31  memory.host_statistics64  memory in use   86.7 %
-
+21:48:50  memory.host_statistics64  memory in use   86.7 %  (27.76 of 32.00 GiB)
+21:48:55  memory.host_statistics64  memory in use   87.0 %  (27.83 of 32.00 GiB)
 $ swift run -c release kern-probe memory-pressure # the memory pressure every 5 seconds until Ctrl-C
 chip: M1 Max
 21:59:22  memory.memorystatus_level  memory pressure   70.0 %
 21:59:27  memory.memorystatus_level  memory pressure   66.0 %
+
+$ swift run -c release kern-probe kern # the probe's own CPU use and footprint every 2 seconds until Ctrl-C
+chip: M1 Max
+21:18:48  kern.getrusage_task_info  process usage  unavailable (awaiting baseline)
+21:18:50  kern.getrusage_task_info  process usage    0.0 %  (footprint 2.5 MiB)
 ```
 
 Memory pressure is the share of memory that macOS cannot give to an app without first reclaiming it, and the menu bar's RAM gauge shows it. Once memory is full, used memory stays near the top while pressure keeps moving with how hard macOS is working.
 
-The first CPU and GPU readings are always unavailable, because both numbers are the change between two readings. The GPU number is active-state residency, not utilization. It is the share of time the GPU was powered on, which includes time spent drawing the screen, so an idle desktop does not read zero.
+The first CPU and GPU readings are always unavailable, because both numbers are the change between two readings. The app and the `metrics` command read them again a quarter of a second later, so a value follows right away. The GPU number is active-state residency, not utilization. It is the share of time the GPU was powered on, which includes time spent drawing the screen, so an idle desktop does not read zero.
 
 The temperature is the hottest of the CPU die sensors that have been verified for the chip. On a chip without a verified sensor map, which today means every chip except the M1 Max, it is always unavailable.
 
@@ -107,18 +111,28 @@ The `metrics` command runs all the metrics the way the app does, each on its own
 ```sh
 $ swift run -c release kern-probe metrics # until Ctrl-C or Ctrl-D
 chip: M1 Max
-16:04:32  cpu          unavailable (awaiting baseline)  history 1/60, 1 gap
-16:04:32  temperature   69.3 °C
-16:04:32  gpu          unavailable (awaiting baseline)  history 1/60, 1 gap
-16:04:34  cpu           49.8 %  history 2/60, 1 gap
-16:04:34  gpu           38.4 %  history 2/60, 1 gap
+21:48:22  memory-pressure   70.0 %  history 1/60, 0 gaps
+21:48:22  cpu              unavailable (awaiting baseline)  history 1/60, 1 gap
+21:48:22  temperature       71.1 °C  (cpu 67.0 to 71.1 °C)  history 1/60, 0 gaps
+21:48:22  gpu              unavailable (awaiting baseline)  history 1/60, 1 gap
+21:48:22  cpu               40.6 %  (user  16.1 %, system  24.5 %)  history 2/60, 1 gap
+21:48:22  gpu               48.3 %  history 2/60, 1 gap
+21:48:24  cpu               49.6 %  (user  21.0 %, system  28.5 %)  history 3/60, 1 gap
+21:48:24  gpu               49.6 %  history 3/60, 1 gap
 disable gpu
-16:04:37  gpu disabled
+21:48:25  gpu              history 0/60, 0 gaps
+21:48:25  gpu disabled
+21:48:26  cpu               46.1 %  (user  19.5 %, system  26.6 %)  history 4/60, 1 gap
+21:48:27  memory-pressure   69.0 %  history 2/60, 0 gaps
+21:48:28  cpu               53.5 %  (user  23.0 %, system  30.6 %)  history 5/60, 1 gap
 interval cpu 1
-16:04:42  cpu every 1 s
+21:48:30  cpu               53.5 %  (user  23.0 %, system  30.6 %)  history 5/60, 1 gap
+21:48:30  cpu every 1 s
+21:48:30  cpu               50.2 %  (user  25.5 %, system  24.7 %)  history 6/60, 1 gap
+21:48:31  cpu               62.9 %  (user  24.0 %, system  38.9 %)  history 7/60, 1 gap
 ```
 
-While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, `memory`, or `memory-pressure`. Used memory is sampled only after `details on`, as the app samples it only while its popover is open, and `details off` stops it again. `sleep` and `wake` suspend and resume sampling as the app does when the Mac sleeps and wakes. `low-power on` and `low-power off` sample as the app does while Low Power Mode is on or off, and `low-power-behavior override` or `low-power-behavior adaptive` sets whether Low Power Mode slows the sampling down. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
+While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, `memory`, `memory-pressure`, or `kern`. Used memory is sampled only after `details on`, as the app samples it only while its popover is open, and `details off` stops it again. The probe's own usage is sampled only after `enable kern`, as the app samples its own only while the Kern usage widget is in the menu bar or Settings is open. `sleep` and `wake` suspend and resume sampling as the app does when the Mac sleeps and wakes. `low-power on` and `low-power off` sample as the app does while Low Power Mode is on or off, and `low-power-behavior override` or `low-power-behavior adaptive` sets whether Low Power Mode slows the sampling down. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
 
 To find the temperature sensors of a new chip, list every temperature the SMC reports, one comma-separated row per second, and watch which ones follow a CPU load:
 

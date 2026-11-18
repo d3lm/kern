@@ -7,12 +7,14 @@ public enum Monitor: String, CaseIterable, Sendable {
   case temperature
   case memory
 
-  init(_ metric: Metric) {
+  /// Returns nil for Kern's own usage, which Settings does not turn on and off.
+  init?(_ metric: Metric) {
     switch metric {
     case .cpu: self = .cpu
     case .gpu: self = .gpu
     case .temperature: self = .temperature
     case .memory, .memoryPressure: self = .memory
+    case .kern: return nil
     }
   }
 
@@ -115,8 +117,10 @@ public struct Preferences: Equatable, Sendable {
   var shownMenuBarLayout: MenuBarLayout {
     var layout = menuBarLayout
 
-    for widget in Widget.allCases where !self[Monitor(widget.metric)].isEnabled {
-      layout.setShown(false, widget)
+    for widget in Widget.allCases {
+      if let monitor = Monitor(widget.metric), !self[monitor].isEnabled {
+        layout.setShown(false, widget)
+      }
     }
 
     return layout
@@ -148,7 +152,9 @@ extension ClosedRange<Int> {
 }
 
 extension MetricsCoordinator {
-  func apply(_ preferences: Preferences) {
+  /// Samples a metric that Settings does not turn on and off while its widget is in the menu bar, and also while
+  /// Settings is open, because its Menu Bar tab shows every widget with its reading.
+  func apply(_ preferences: Preferences, isSettingsOpen: Bool = false) {
     for monitor in Monitor.allCases {
       let settings = preferences[monitor]
 
@@ -160,6 +166,14 @@ extension MetricsCoordinator {
         } else {
           disable(metric)
         }
+      }
+    }
+
+    for widget in Widget.allCases where Monitor(widget.metric) == nil {
+      if isSettingsOpen || preferences.menuBarLayout.isShown(widget) {
+        enable(widget.metric)
+      } else {
+        disable(widget.metric)
       }
     }
 

@@ -14,6 +14,12 @@ struct TextLine {
     width = CTLineGetTypographicBounds(line, nil, nil, nil)
   }
 
+  /// Returns the box of the glyphs' ink around the line's origin, which leaves out the space
+  /// a font keeps around them.
+  var inkBounds: CGRect {
+    CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
+  }
+
   func draw(at point: CGPoint, in context: CGContext) {
     context.textPosition = point
 

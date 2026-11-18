@@ -4,10 +4,12 @@ public enum Metric: String, CaseIterable, Sendable {
   case temperature
   case memory
   case memoryPressure = "memory-pressure"
+  /// Is Kern's own CPU and memory use.
+  case kern
 
   public var defaultInterval: Duration {
     switch self {
-    case .cpu, .gpu: .seconds(2)
+    case .cpu, .gpu, .kern: .seconds(2)
     case .memory, .memoryPressure: .seconds(5)
     case .temperature: .seconds(10)
     }
@@ -15,7 +17,7 @@ public enum Metric: String, CaseIterable, Sendable {
 
   public var lowPowerInterval: Duration {
     switch self {
-    case .cpu, .gpu: .seconds(5)
+    case .cpu, .gpu, .kern: .seconds(5)
     case .temperature: .seconds(20)
     case .memory, .memoryPressure: .seconds(10)
     }
@@ -24,14 +26,14 @@ public enum Metric: String, CaseIterable, Sendable {
   var keepsHistory: Bool {
     switch self {
     case .cpu, .gpu, .temperature, .memoryPressure: true
-    case .memory: false
+    case .memory, .kern: false
     }
   }
 
   var isSampledOnlyForDetails: Bool {
     switch self {
     case .memory: true
-    case .cpu, .gpu, .temperature, .memoryPressure: false
+    case .cpu, .gpu, .temperature, .memoryPressure, .kern: false
     }
   }
 }

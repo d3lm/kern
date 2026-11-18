@@ -70,6 +70,56 @@ final class SettingsTests {
     #expect(isOpen(.cpu) && isOpen(.gpu) && isOpen(.temperature))
   }
 
+  @Test func kernUsageIsSampledOnlyWhileItsWidgetIsInTheMenuBar() async {
+    var preferences = Preferences.standard
+
+    coordinator.apply(preferences)
+    coordinator.start()
+
+    await waitUntil { isOpen(.cpu) && coordinator.store[.cpu]?.latest != nil }
+
+    #expect(!isOpen(.kern))
+    #expect(calls[.kern]!.all.isEmpty)
+    #expect(coordinator.store[.kern]?.isEnabled == false)
+
+    preferences.menuBarLayout.place(.kern, before: .cpu)
+    coordinator.apply(preferences)
+
+    await waitUntil { coordinator.store[.kern]?.latest != nil }
+
+    #expect(isOpen(.kern))
+    #expect(coordinator.store[.kern]?.interval == Metric.kern.defaultInterval)
+
+    preferences.menuBarLayout.setShown(false, .kern)
+    coordinator.apply(preferences)
+
+    await waitUntil { !isOpen(.kern) }
+
+    #expect(coordinator.store[.kern]?.isEnabled == false)
+    #expect(coordinator.store[.kern]?.latest == nil)
+  }
+
+  @Test func kernUsageIsSampledWhileSettingsIsOpenToShowItOnTheShelf() async {
+    coordinator.apply(.standard)
+    coordinator.start()
+
+    await waitUntil { isOpen(.cpu) && coordinator.store[.cpu]?.latest != nil }
+
+    #expect(!isOpen(.kern))
+
+    coordinator.apply(.standard, isSettingsOpen: true)
+
+    await waitUntil { coordinator.store[.kern]?.latest != nil }
+
+    #expect(isOpen(.kern))
+
+    coordinator.apply(.standard, isSettingsOpen: false)
+
+    await waitUntil { !isOpen(.kern) }
+
+    #expect(coordinator.store[.kern]?.isEnabled == false)
+  }
+
   @Test func intervalsHistoryLengthAndLowPowerBehaviorReachTheCoordinator() {
     var preferences = Preferences.standard
 
@@ -122,17 +172,22 @@ final class SettingsTests {
 
     let final = preferences.preferences
 
+    func isEnabled(_ metric: Metric) -> Bool {
+      Monitor(metric).map { final[$0].isEnabled } ?? final.menuBarLayout.isShown(.kern)
+    }
+
     func isSampled(_ metric: Metric) -> Bool {
-      final[Monitor(metric)].isEnabled && !metric.isSampledOnlyForDetails
+      isEnabled(metric) && !metric.isSampledOnlyForDetails
     }
 
     await waitUntil { Metric.allCases.allSatisfy { isOpen($0) == isSampled($0) } }
 
     for metric in Metric.allCases {
       let readings = coordinator.store[metric]
+      let interval = Monitor(metric).map { Duration.seconds(final[$0].interval) } ?? metric.defaultInterval
 
-      #expect(readings?.isEnabled == final[Monitor(metric)].isEnabled, "\(metric)")
-      #expect(readings?.interval == .seconds(final[Monitor(metric)].interval), "\(metric)")
+      #expect(readings?.isEnabled == isEnabled(metric), "\(metric)")
+      #expect(readings?.interval == interval, "\(metric)")
       #expect(calls[metric]!.all.count { $0 == "open" } - calls[metric]!.all.count { $0 == "close" } <= 1)
     }
 
@@ -891,7 +946,7 @@ final class SettingsTests {
 
     coordinator.disable(.temperature)
 
-    #expect(temperature() == .reading("—", isStale: false))
+    #expect(temperature() == .noReading)
   }
 
   @Test func statusItemFollowsAChangeOfSettingsAtOnce() async throws {

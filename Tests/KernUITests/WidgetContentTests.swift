@@ -9,12 +9,8 @@ struct WidgetContentTests {
     let noSamples = readings(.temperature)
     let onlyFailures = readings(.temperature, after: [sample(failed), sample(failed, at: start + .seconds(10))])
 
-    #expect(
-      Widget.temperature.content(for: noSamples, at: start, temperatureUnit: .celsius) == .reading("—", isStale: false))
-
-    #expect(
-      Widget.temperature.content(for: onlyFailures, at: start, temperatureUnit: .celsius)
-        == .reading("—", isStale: false))
+    #expect(Widget.temperature.content(for: noSamples, at: start, temperatureUnit: .celsius) == .noReading)
+    #expect(Widget.temperature.content(for: onlyFailures, at: start, temperatureUnit: .celsius) == .noReading)
   }
 
   @Test func temperatureIsWholeDegrees() {
@@ -168,6 +164,52 @@ struct WidgetContentTests {
     let content = Widget.cpu.content(for: readings, at: start + .seconds(198), temperatureUnit: .celsius)
 
     #expect(content == .graph((40..<100).map(Double.init), isStale: false))
+  }
+
+  @Test func kernUsageIsADashUntilTheFirstValue() {
+    let noValues = [
+      [], [sample(.unavailable(.noValue(.awaitingBaseline)))], [sample(failed)],
+      [sample(.unavailable(.noValue(.countersUnchanged)))],
+    ]
+
+    for samples in noValues {
+      #expect(
+        Widget.kern.content(for: readings(.kern, after: samples), at: start, temperatureUnit: .celsius) == .noReading)
+    }
+  }
+
+  @Test func kernUsageStacksItsCPUShareAboveItsFootprint() {
+    let readings = readings(.kern, after: [sample(usage(0.43, megabytes: 17.6))])
+
+    #expect(
+      Widget.kern.content(for: readings, at: start, temperatureUnit: .fahrenheit)
+        == .stacked("0.4%", "18 MB", isStale: false))
+  }
+
+  @Test(arguments: [
+    (0.0, "0.0%"), (0.04, "0.0%"), (0.06, "0.1%"), (2.35, "2.4%"), (9.94, "9.9%"), (9.96, "10%"), (12.5, "13%"),
+    (99.6, "100%"), (450, "450%"),
+  ])
+  func kernCPUKeepsATenthOfAPercentOnlyBelowTenPercent(percent: Double, text: String) {
+    #expect(WidgetContent.processCPUText(percent) == text)
+  }
+
+  @Test(arguments: [(0.4, "0 MB"), (13.5, "14 MB"), (61.2, "61 MB"), (999.4, "999 MB")])
+  func kernFootprintIsWholeMegabytesOfTwoToTheTwentiethBytes(megabytes: Double, text: String) {
+    #expect(WidgetContent.footprintText(UInt64(megabytes * Double(1 << 20))) == text)
+  }
+
+  @Test func staleKernUsageKeepsItsValuesAndIsMarkedStale() throws {
+    let readings = readings(.kern, after: [sample(usage(1.2, megabytes: 20), at: start)])
+    let deadline = try #require(readings.staleAt)
+
+    #expect(
+      Widget.kern.content(for: readings, at: deadline - .nanoseconds(1), temperatureUnit: .celsius)
+        == .stacked("1.2%", "20 MB", isStale: false))
+
+    #expect(
+      Widget.kern.content(for: readings, at: deadline, temperatureUnit: .celsius)
+        == .stacked("1.2%", "20 MB", isStale: true))
   }
 
   @Test func readingsAtTheirStaleDeadlineChangeOnlyTheStaleness() throws {

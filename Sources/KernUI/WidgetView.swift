@@ -6,20 +6,21 @@ private let logger = Logger(subsystem: "Kern", category: "menu bar")
 
 final class WidgetView: NSView {
   let widget: Widget
-  let widestWidth: CGFloat
   let temperatureUnit: TemperatureUnit
+  /// Holds the width the widget needs, which follows the text of a widget that shows text and is fixed otherwise.
   private(set) var contentWidth: CGFloat
   var onContentWidthChange: () -> Void = {}
 
-  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale. The view keeps
-  /// no readings to check itself, because a copy of a history would make the store copy it on its next sample.
+  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale.
+  /// The view keeps no readings to check itself, because a copy of a history would make the store copy
+  /// it on its next sample.
   var onStaleDeadline: () -> Void = {}
 
   private let style: MenuBarStyle
   private let labelLetters: [TextLine]
   private let valueOffset: CGFloat
   private(set) var content: WidgetContent?
-  private var valueText: TextLine?
+  private var valueLines: [TextLine] = []
   private lazy var staleCheck = StaleCheck { [weak self] in self?.onStaleDeadline() }
   private(set) var drawCount = 0
 
@@ -29,10 +30,9 @@ final class WidgetView: NSView {
     self.style = style
     self.labelLetters = label.map { $0.map { TextLine(String($0), font: style.labelFont) } } ?? []
     self.valueOffset = style.valueOffset(label: label)
-    self.widestWidth = style.width(of: widget, label: label)
-    self.contentWidth = widestWidth
+    self.contentWidth = style.width(of: widget, label: label)
 
-    super.init(frame: NSRect(x: 0, y: 0, width: widestWidth, height: style.height))
+    super.init(frame: NSRect(x: 0, y: 0, width: contentWidth, height: style.height))
   }
 
   @available(*, unavailable)
@@ -51,11 +51,18 @@ final class WidgetView: NSView {
   private func render(_ content: WidgetContent) {
     guard content != self.content else { return }
 
-    if case .reading(let text, _) = content {
-      let valueText = TextLine(text, font: style.valueFont)
-      let contentWidth = valueOffset + ceil(valueText.width)
+    let lines: [TextLine]? =
+      switch content {
+      case .reading(let text, _): [TextLine(text, font: style.valueFont)]
+      case .noReading: [TextLine(WidgetContent.unavailableText, font: style.valueFont)]
+      case .stacked(let top, let bottom, _): [top, bottom].map { TextLine($0, font: style.stackedFont) }
+      case .level, .graph: nil
+      }
 
-      self.valueText = valueText
+    if let lines {
+      let contentWidth = valueOffset + ceil(lines.map(\.width).max() ?? 0)
+
+      valueLines = lines
 
       if contentWidth != self.contentWidth {
         self.contentWidth = contentWidth
@@ -85,13 +92,14 @@ final class WidgetView: NSView {
 
     switch content {
     case .reading:
-      if let valueText {
-        drawText(valueText, alignedRightIn: value, alpha: valueAlpha, in: context, pixel: pixel)
-      }
-
+      drawLines(valueLines, font: style.valueFont, alignedRightIn: value, alpha: valueAlpha, in: context, pixel: pixel)
+    case .stacked:
+      drawLines(
+        valueLines, font: style.stackedFont, alignedRightIn: value, alpha: valueAlpha, in: context, pixel: pixel)
+    case .noReading:
+      drawCentered(valueLines[0], in: value, alpha: valueAlpha, in: context, pixel: pixel)
     case .level(let level, _):
       drawGauge(level, in: value, alpha: valueAlpha, pixel: pixel)
-
     case .graph(let levels, _):
       drawChart(levels, in: value, alpha: valueAlpha, pixel: pixel)
     }
@@ -107,18 +115,38 @@ final class WidgetView: NSView {
     (value / pixel).rounded() * pixel
   }
 
-  private func drawText(
-    _ text: TextLine,
+  /// Centers the lines' capitals vertically as one block, top line first.
+  private func drawLines(
+    _ lines: [TextLine],
+    font: NSFont,
     alignedRightIn box: NSRect,
     alpha: CGFloat,
     in context: CGContext,
     pixel: CGFloat
   ) {
-    let baseline = box.minY + (box.height - style.valueFont.capHeight) / 2
-    let origin = CGPoint(x: aligned(box.maxX - text.width, to: pixel), y: aligned(baseline, to: pixel))
+    let height = CGFloat(lines.count - 1) * style.stackedLineHeight + font.capHeight
+
+    var baseline = box.minY + (box.height + height) / 2 - font.capHeight
 
     context.setFillColor(ink(alpha).cgColor)
-    text.draw(at: origin, in: context)
+
+    for line in lines {
+      line.draw(at: CGPoint(x: aligned(box.maxX - line.width, to: pixel), y: aligned(baseline, to: pixel)), in: context)
+
+      baseline -= style.stackedLineHeight
+    }
+  }
+
+  /// Centers the line's ink, not its text, because a lone dash sits below the middle of the digits it stands for,
+  /// and the gauges draw their dash in the middle.
+  private func drawCentered(_ line: TextLine, in box: NSRect, alpha: CGFloat, in context: CGContext, pixel: CGFloat) {
+    let glyphs = line.inkBounds
+
+    context.setFillColor(ink(alpha).cgColor)
+
+    line.draw(
+      at: CGPoint(x: aligned(box.midX - glyphs.midX, to: pixel), y: aligned(box.midY - glyphs.midY, to: pixel)),
+      in: context)
   }
 
   private func drawLabel(in context: CGContext, pixel: CGFloat) {

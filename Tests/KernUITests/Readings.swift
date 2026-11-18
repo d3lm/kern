@@ -10,6 +10,10 @@ func value(_ value: Double, _ unit: MetricUnit = .percent, cores: CoreUtilizatio
   .valid(MetricValue(value, unit, cores: cores))
 }
 
+func usage(_ percent: Double, megabytes: Double) -> SampleState {
+  .valid(MetricValue(percent, .percent, footprintBytes: UInt64(megabytes * Double(1 << 20))))
+}
+
 let failed = SampleState.unavailable(.sensorFailed(SensorError("read failed")))
 
 @MainActor

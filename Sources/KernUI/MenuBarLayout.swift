@@ -5,6 +5,7 @@ public enum Widget: String, CaseIterable, Sendable {
   case cpu
   case gpu
   case memory
+  case kern
 
   var metric: Metric {
     switch self {
@@ -12,12 +13,13 @@ public enum Widget: String, CaseIterable, Sendable {
     case .cpu: .cpu
     case .gpu: .gpu
     case .memory: .memoryPressure
+    case .kern: .kern
     }
   }
 
   var label: String? {
     switch self {
-    case .temperature: nil
+    case .temperature, .kern: nil
     case .cpu: "CPU"
     case .gpu: "GPU"
     case .memory: "RAM"
@@ -32,7 +34,7 @@ public struct MenuBarLayout: Equatable, Sendable {
   /// Holds the widgets whose label is hidden. Only widgets that have a label are in it.
   public private(set) var unlabeled: Set<Widget>
 
-  public static let standard = MenuBarLayout(widgets: Widget.allCases, unlabeled: [])!
+  public static let standard = MenuBarLayout(widgets: [.temperature, .cpu, .gpu, .memory], unlabeled: [])!
 
   /// Lists `widgets` first, in their order, then the widgets missing from it, hidden and in their standard order.
   /// Returns nil when `widgets` names a widget twice.

@@ -183,8 +183,8 @@ final class MenuBarEditor: NSView, SettingsContent {
 
       bar.addSubview(view)
 
-      // the leading widget widens with its value, as in the menu bar, so the widgets keep their trailing edge by a
-      // constraint rather than a frame set once
+      // a widget that shows text widens with its value, as in the menu bar, so the widgets keep their trailing
+      // edge by a constraint rather than a frame set once
       NSLayoutConstraint.activate([
         view.trailingAnchor.constraint(equalTo: clock.leadingAnchor, constant: -Self.clockSpacing),
         view.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
@@ -256,6 +256,7 @@ final class MenuBarEditor: NSView, SettingsContent {
 
         shelf.addSubview(item)
         showReadings(on: item.menuBarView)
+        item.arrange()
 
         return item
       }
@@ -272,10 +273,10 @@ final class MenuBarEditor: NSView, SettingsContent {
 
   private func showAvailability(of widget: Widget, on view: NSView) {
     let monitor = Monitor(widget.metric)
-    let isOn = preferences[monitor].isEnabled
+    let isOn = monitor.map { preferences[$0].isEnabled } ?? true
 
     view.alphaValue = isOn ? 1 : Self.disabledAlpha
-    view.toolTip = isOn ? nil : "Hidden from the menu bar while \(monitor.title) is off"
+    view.toolTip = monitor.flatMap { isOn ? nil : "Hidden from the menu bar while \($0.title) is off" }
   }
 
   private func offerCommands(for widget: Widget, on view: NSView, label: String) {
@@ -300,6 +301,12 @@ final class MenuBarEditor: NSView, SettingsContent {
     for item in shelfItems {
       item.menuBarView.show(readings, for: metric)
     }
+
+    if shelfItems.map({ $0.arrange() }).contains(true) {
+      arrangeShelf()
+    }
+
+    window?.invalidateCursorRects(for: self)
   }
 
   private func showReadings(on view: MenuBarView) {
@@ -570,9 +577,10 @@ final class MenuBarEditor: NSView, SettingsContent {
     }
   }
 
-  /// Shows the widget in the ghost as it looks where it lands, with the ghost's trailing edge kept in place. The
-  /// leading widget is only as wide as its reading, which the widgets draw right-aligned, so a ghost of the old width
-  /// stretched to the new one would slide its reading past its place and jump back when the widget appears.
+  /// Shows the widget in the ghost as it looks where it lands, with the ghost's trailing edge kept in place.
+  /// A widget that shows text is only as wide as its reading, which can gain a digit during the drag, and the
+  /// widgets draw it right-aligned, so a ghost of the old width stretched to the new one would slide its reading
+  /// past its place and jump back when the widget appears.
   ///
   /// A widget dropped just after the others moved is still sliding to its place, so it is put there at once first,
   /// which nobody sees because it stays hidden until the ghost arrives.
@@ -727,16 +735,34 @@ final class ShelfItem: NSView {
 
     name.sizeToFit()
 
-    let width = max(menuBarView.frame.width, name.alignmentSize.width)
-
-    menuBarView.setFrameOrigin(NSPoint(x: ((width - menuBarView.frame.width) / 2).rounded(), y: 0))
-
-    name.setAlignmentOrigin(
-      NSPoint(x: ((width - name.alignmentSize.width) / 2).rounded(), y: menuBarView.frame.maxY + Self.nameGap))
-
     addSubview(menuBarView)
     addSubview(name)
-    setFrameSize(NSSize(width: width, height: name.frame.maxY))
+    arrange()
+  }
+
+  /// Centers the widget and its name under each other on the display's pixels, because on whole points two widths
+  /// that differ by an odd number cannot be centered. Returns whether the item changed size, which a reading that
+  /// changes the widget's width can make it do.
+  @discardableResult
+  func arrange() -> Bool {
+    let width = max(menuBarView.frame.width, name.alignmentSize.width)
+
+    func centered(_ size: NSSize, top: CGFloat) -> NSPoint {
+      let frame = NSRect(origin: NSPoint(x: (width - size.width) / 2, y: top), size: size)
+
+      return backingAlignedRect(frame, options: .alignAllEdgesNearest).origin
+    }
+
+    menuBarView.setFrameOrigin(centered(menuBarView.frame.size, top: 0))
+    name.setAlignmentOrigin(centered(name.alignmentSize, top: menuBarView.frame.maxY + Self.nameGap))
+
+    let size = NSSize(width: width, height: name.frame.maxY)
+
+    guard size != frame.size else { return false }
+
+    setFrameSize(size)
+
+    return true
   }
 
   @available(*, unavailable)
@@ -745,6 +771,12 @@ final class ShelfItem: NSView {
   }
 
   override var isFlipped: Bool { true }
+
+  override func viewDidChangeBackingProperties() {
+    super.viewDidChangeBackingProperties()
+
+    arrange()
+  }
 
   func matches(_ preferences: Preferences) -> Bool {
     preferences.temperatureUnit == temperatureUnit && preferences.menuBarLayout.label(of: widget) == label

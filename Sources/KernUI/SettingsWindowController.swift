@@ -58,15 +58,19 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     }
   }
 
-  /// An agent app is never active on its own, so the window would open behind the app the user is in.
+  /// An agent app is never active on its own, and `activate()` only asks macOS, which can refuse it,
+  /// so the window would open behind the app the user is in. `activate(ignoringOtherApps:)` makes Kern
+  /// active regardless, so typing reaches the window, and `orderFrontRegardless()` keeps the window in
+  /// front even when macOS still refuses activation.
   func show() {
     (panes.first as? GeneralSettings)?.refreshLoginItem()
-    NSApp.activate()
+    NSApp.activate(ignoringOtherApps: true)
     window.makeKeyAndOrderFront(nil)
+    window.orderFrontRegardless()
   }
 
-  /// malloc keeps freed pages, which count as Kern's memory, until memory pressure, so the pages the window leaves
-  /// empty are returned once it has been released.
+  /// malloc keeps freed pages, which count as Kern's memory, until memory pressure, so the pages the window
+  /// leaves empty are returned once it has been released.
   func windowWillClose(_ notification: Notification) {
     window.delegate = nil
 
@@ -101,8 +105,8 @@ final class SettingsWindow: NSWindow {
 
 extension NSEvent {
   /// Returns the modifiers and the key of a shortcut, as a menu reads them. The key is what the key gives with ⌘
-  /// held, which differs from what it types on a layout such as Dvorak – QWERTY ⌘ or one without Latin letters. It is
-  /// in lowercase, so Caps Lock changes nothing.
+  /// held, which differs from what it types on a layout such as Dvorak – QWERTY ⌘ or one without Latin letters.
+  /// It is in lowercase, so Caps Lock changes nothing.
   var shortcut: (modifiers: NSEvent.ModifierFlags, key: String?) {
     let characters = characters.flatMap { $0.isEmpty ? nil : $0 } ?? charactersIgnoringModifiers
 

@@ -9,10 +9,10 @@ let usage = """
   The Mac stays awake. Each cycle stays asleep for 8 seconds and awake for 12 unless told otherwise, and the last
   wake is followed by 30 more seconds awake. Build it with -c release to measure a Release build.
 
-  Kern's debug log says what it did. Pipe it to Scripts/power-report.swift for a table of the cycles:
+  Kern's debug log says what it did. Pipe it to Scripts/schedule-report.swift for a table of the cycles:
 
     log stream --style ndjson --level debug --predicate 'subsystem == "Kern" && process == "kern-power-bench"' \\
-      | swift Scripts/power-report.swift
+      | swift Scripts/schedule-report.swift
 
   A Debug build also accepts Kern's own launch arguments, such as --fail gpu.
   """

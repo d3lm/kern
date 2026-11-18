@@ -1,10 +1,44 @@
 import Foundation
 import KernCore
 
+enum DisplayUnit: Equatable {
+  case percent
+  case degrees(TemperatureUnit)
+
+  init(_ unit: MetricUnit, temperatureUnit: TemperatureUnit) {
+    switch unit {
+    case .percent: self = .percent
+    case .celsius: self = .degrees(temperatureUnit)
+    }
+  }
+
+  var text: String {
+    switch self {
+    case .percent: "%"
+    case .degrees: "°"
+    }
+  }
+
+  var spokenName: String {
+    switch self {
+    case .percent: "percent"
+    case .degrees(let unit): unit.spokenName
+    }
+  }
+
+  /// Converts a value measured in the metric's own unit, which for a temperature is degrees Celsius.
+  func amount(of measured: Double) -> Double {
+    switch self {
+    case .percent: measured
+    case .degrees(let unit): unit.value(ofCelsius: measured)
+    }
+  }
+}
+
 struct DetailRow: Equatable {
   struct Value: Equatable {
     let amount: Int
-    let unit: MetricUnit
+    let unit: DisplayUnit
 
     var fraction: Double {
       min(max(Double(amount) / 100, 0), 1)
@@ -17,6 +51,7 @@ struct DetailRow: Equatable {
     case waiting
     case noValue(NoValueReason)
     case failed(SensorError)
+    case off
   }
 
   let title: String
@@ -38,11 +73,7 @@ struct DetailRow: Equatable {
   }
 
   var unitText: String {
-    switch value?.unit {
-    case nil: ""
-    case .percent: "%"
-    case .celsius: "°"
-    }
+    value?.unit.text ?? ""
   }
 
   var valueText: String { numberText + unitText }
@@ -50,16 +81,14 @@ struct DetailRow: Equatable {
   var spokenValue: String {
     guard let value else { return isMeasuring ? "measuring" : "unavailable" }
 
-    switch value.unit {
-    case .percent: return "\(value.amount) percent"
-    case .celsius: return "\(value.amount) degrees Celsius"
-    }
+    return "\(value.amount) \(value.unit.spokenName)"
   }
 
   func statusText(at now: ContinuousClock.Instant, date: Date, timeStyle: Date.FormatStyle) -> String? {
     func time(of instant: ContinuousClock.Instant) -> String {
       let (seconds, attoseconds) = instant.duration(to: now).components
       let age = TimeInterval(seconds) + TimeInterval(attoseconds) / 1e18
+
       return date.addingTimeInterval(-age).formatted(timeStyle)
     }
 
@@ -71,6 +100,7 @@ struct DetailRow: Equatable {
     case .noValue(.countersUnchanged): return "No value: the counters did not advance"
     case .noValue(.countersWentBackwards): return "No value: the counters went backwards"
     case .failed(let error): return "Unavailable: \(error)"
+    case .off: return "Turned off in Settings"
     }
   }
 }
@@ -95,15 +125,18 @@ struct MemoryText: Equatable {
   var spokenText: String { "\(used) of \(installed) gigabytes" }
 }
 
+/// Holds the range in degrees Celsius, which its bar is drawn on, and says it in the unit of the settings.
 struct SensorRange: Equatable {
   let part: ChipPart
   let coolest: Double
   let hottest: Double
+  let unit: TemperatureUnit
 
-  init(_ temperature: PartTemperature) {
+  init(_ temperature: PartTemperature, unit: TemperatureUnit) {
     part = temperature.part
     coolest = temperature.coolest
     hottest = temperature.hottest
+    self.unit = unit
   }
 
   var label: String {
@@ -112,14 +145,18 @@ struct SensorRange: Equatable {
     }
   }
 
-  var valueText: String { "\(Int(hottest.rounded()))°" }
+  private func shown(_ celsius: Double) -> Int {
+    Int(unit.value(ofCelsius: celsius).rounded())
+  }
+
+  var valueText: String { "\(shown(hottest))°" }
 
   var spokenText: String {
-    let (coolest, hottest) = (Int(coolest.rounded()), Int(hottest.rounded()))
+    let (coolest, hottest) = (shown(coolest), shown(hottest))
 
     return coolest == hottest
-      ? "\(label) sensors, \(hottest) degrees Celsius"
-      : "\(label) sensors, \(coolest) to \(hottest) degrees Celsius"
+      ? "\(label) sensors, \(hottest) \(unit.spokenName)"
+      : "\(label) sensors, \(coolest) to \(hottest) \(unit.spokenName)"
   }
 }
 
@@ -145,20 +182,24 @@ struct CoreChart: Equatable {
   }
 }
 
+/// Holds the levels as measured, which for a temperature is degrees Celsius, and says them in `unit`.
 struct HistoryChart: Equatable {
   let levels: [Double?]
   let span: Duration
-  let unit: MetricUnit
+  let unit: DisplayUnit
   let isStale: Bool
 
   var spokenSummary: String {
     let values = levels.compactMap { $0 }
     let span = span.formatted(.units(allowed: [.hours, .minutes, .seconds], width: .wide))
-    let unit = unit == .celsius ? "degrees Celsius" : "percent"
+
+    func said(_ level: Double) -> String {
+      "\(Int(unit.amount(of: level).rounded())) \(unit.spokenName)"
+    }
 
     guard let lowest = values.min(), let highest = values.max() else { return "No values in the last \(span)" }
 
-    return "Last \(span): lowest \(Int(lowest.rounded())) \(unit), highest \(Int(highest.rounded())) \(unit)"
+    return "Last \(span): lowest \(said(lowest)), highest \(said(highest))"
   }
 }
 
@@ -216,11 +257,18 @@ extension Metric {
     }
   }
 
-  func detailRow(for readings: MetricReadings, source: MetricSource, at now: ContinuousClock.Instant) -> DetailRow {
+  func detailRow(
+    for readings: MetricReadings,
+    source: MetricSource,
+    at now: ContinuousClock.Instant,
+    temperatureUnit: TemperatureUnit
+  ) -> DetailRow {
     let value = readings.lastSuccessful?.value
     let status: DetailRow.Status
 
-    if let acquiredAt = readings.lastSuccessful?.acquiredAt {
+    if !readings.isEnabled {
+      status = .off
+    } else if let acquiredAt = readings.lastSuccessful?.acquiredAt {
       status = readings.isStale(at: now) ? .stale(acquiredAt: acquiredAt) : .current(acquiredAt: acquiredAt)
     } else {
       switch readings.latest?.state {
@@ -238,7 +286,11 @@ extension Metric {
       title: detailTitle(measuring: source.quantity),
       label: detailLabel(measuring: source.quantity),
       explanation: [detailExplanation(of: source), split].compactMap { $0 }.joined(separator: "\n"),
-      value: value.map { DetailRow.Value(amount: Int($0.value.rounded()), unit: $0.unit) },
+      value: value.map { value in
+        let unit = DisplayUnit(value.unit, temperatureUnit: temperatureUnit)
+
+        return DetailRow.Value(amount: Int(unit.amount(of: value.value).rounded()), unit: unit)
+      },
       status: status
     )
   }
@@ -247,13 +299,17 @@ extension Metric {
     CoreChart(cores: readings.lastSuccessful?.value?.cores, isStale: readings.isStale(at: now))
   }
 
-  func historyChart(for readings: MetricReadings, at now: ContinuousClock.Instant) -> HistoryChart? {
+  func historyChart(
+    for readings: MetricReadings,
+    at now: ContinuousClock.Instant,
+    temperatureUnit: TemperatureUnit
+  ) -> HistoryChart? {
     guard let history = readings.history else { return nil }
 
     return HistoryChart(
       levels: history.levels,
       span: readings.interval * history.capacity,
-      unit: self == .temperature ? .celsius : .percent,
+      unit: self == .temperature ? .degrees(temperatureUnit) : .percent,
       isStale: readings.isStale(at: now)
     )
   }

@@ -36,3 +36,13 @@ Everything else gets deleted. In particular, follow these rules.
 - Do not silence a linter with `// swiftlint:disable`, `// swiftlint:disable:next`, or any similar suppression. A lint warning means the code should change, so fix the code until the warning goes away. If you believe a rule is wrong for the whole project, stop and ask the user before touching the lint configuration.
 
 When you are unsure whether a comment qualifies, leave it out.
+
+## Linting
+
+Run the linter in `Tools/Linter` after you change Swift code, and fix everything it reports before you finish.
+
+```sh
+Tools/lint .
+```
+
+Add `--fix` to let it apply the fixes itself, then run it once more without `--fix` to confirm nothing is left. The script runs the linter that is already built and rebuilds it only when the files in `Tools/Linter` changed, so do not call `swift run` or `swift build` for the linter yourself.

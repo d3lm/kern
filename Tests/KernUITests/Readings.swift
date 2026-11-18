@@ -16,13 +16,16 @@ let failed = SampleState.unavailable(.sensorFailed(SensorError("read failed")))
 func readings(
   _ metric: Metric,
   interval: Duration = .seconds(2),
-  after samples: [MetricSample] = []
+  after samples: [MetricSample] = [],
+  isEnabled: Bool = true
 ) -> MetricReadings {
   let store = MetricsStore(intervals: [metric: interval])
 
   for sample in samples {
     store.record(sample, for: metric)
   }
+
+  store.setEnabled(isEnabled, for: metric)
 
   return store[metric]!
 }

@@ -37,6 +37,7 @@ func rendered(_ image: NSImage, scale: CGFloat = 2) -> NSBitmapImageRep {
   bitmap.size = image.size
 
   NSGraphicsContext.saveGraphicsState()
+
   NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
 
   image.draw(in: NSRect(origin: .zero, size: image.size))

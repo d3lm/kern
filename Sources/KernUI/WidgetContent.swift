@@ -32,23 +32,26 @@ enum WidgetContent: Equatable, CustomStringConvertible {
     }
   }
 
-  static func text(for value: MetricValue) -> String {
-    let rounded = Int(value.value.rounded())
+  static func text(for value: MetricValue, temperatureUnit: TemperatureUnit) -> String {
+    let unit = DisplayUnit(value.unit, temperatureUnit: temperatureUnit)
 
-    switch value.unit {
-    case .celsius: return "\(rounded)°"
-    case .percent: return "\(rounded)%"
-    }
+    return "\(Int(unit.amount(of: value.value).rounded()))\(unit.text)"
   }
 }
 
 extension Widget {
-  func content(for readings: MetricReadings, at now: ContinuousClock.Instant) -> WidgetContent {
+  func content(
+    for readings: MetricReadings,
+    at now: ContinuousClock.Instant,
+    temperatureUnit: TemperatureUnit
+  ) -> WidgetContent {
     let isStale = readings.isStale(at: now)
 
     switch self {
     case .temperature:
-      let text = readings.lastSuccessful?.value.map(WidgetContent.text) ?? WidgetContent.unavailableText
+      let text =
+        readings.lastSuccessful?.value.map { WidgetContent.text(for: $0, temperatureUnit: temperatureUnit) }
+        ?? WidgetContent.unavailableText
 
       return .reading(text, isStale: isStale)
 

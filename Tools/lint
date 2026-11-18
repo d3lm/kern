@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -euo pipefail
+
+package="$(cd "$(dirname "$0")/Linter" && pwd)"
+binary="$package/.build/release/lint"
+
+if [[ ! -x "$binary" ]] ||
+  [[ -n "$(find "$package/Sources" "$package/Package.swift" "$package/Package.resolved" -newer "$binary" -print -quit)" ]]; then
+  swift build -c release --package-path "$package" >&2
+  touch "$binary"
+fi
+
+exec "$binary" "$@"

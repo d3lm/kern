@@ -99,6 +99,7 @@ struct PowerStateObserverTests {
     #expect(reports.all == [awake, lowPower])
 
     lowPowerMode.isEnabled = false
+
     process.post(name: .NSProcessInfoPowerStateDidChange, object: nil)
 
     #expect(reports.all == [awake, lowPower, awake])
@@ -110,6 +111,7 @@ struct PowerStateObserverTests {
     let observer = observer()
 
     lowPowerMode.isEnabled = true
+
     process.post(name: .NSProcessInfoPowerStateDidChange, object: nil)
     workspace.post(name: NSWorkspace.willSleepNotification, object: nil)
     workspace.post(name: NSWorkspace.didWakeNotification, object: nil)
@@ -140,6 +142,7 @@ struct PowerStateObserverTests {
   @Test func releasedObserverIsRemovedFromItsCentersAndReportsNothingMore() {
     let workspace = CountingCenter()
     let process = CountingCenter()
+
     var observer: PowerStateObserver? = observer(workspace: workspace, process: process)
 
     #expect(workspace.removals == 0)

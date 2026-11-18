@@ -38,7 +38,8 @@ struct DetailContentTests {
   }
 
   @Test func gpuActivityIsExplainedAsActiveResidencyNotUtilization() {
-    let row = Metric.gpu.detailRow(for: readings(.gpu), source: source(.activeResidency), at: start)
+    let row = Metric.gpu.detailRow(
+      for: readings(.gpu), source: source(.activeResidency), at: start, temperatureUnit: .celsius)
 
     #expect(row.title == "GPU activity")
     #expect(!row.title.localizedCaseInsensitiveContains("usage"))
@@ -51,19 +52,20 @@ struct DetailContentTests {
     let row = Metric.temperature.detailRow(
       for: readings(.temperature),
       source: source(.temperature, description),
-      at: start
+      at: start, temperatureUnit: .celsius
     )
 
     #expect(row.explanation == description)
   }
 
   @Test func usageAndMemoryAreExplainedByWhereTheyComeFrom() {
-    let cpu = Metric.cpu.detailRow(for: readings(.cpu), source: source(.utilization, "Mach counters"), at: start)
+    let cpu = Metric.cpu.detailRow(
+      for: readings(.cpu), source: source(.utilization, "Mach counters"), at: start, temperatureUnit: .celsius)
 
     let memory = Metric.memory.detailRow(
       for: readings(.memory),
       source: source(.memoryUsage, "VM statistics"),
-      at: start
+      at: start, temperatureUnit: .celsius
     )
 
     #expect(cpu.explanation == "Mach counters")
@@ -73,7 +75,9 @@ struct DetailContentTests {
   @Test func cpuExplanationAddsUserAndSystemTimeFromTheSameSample() {
     let split = CPUTimeSplit(user: 17.6, system: 24.4)
     let cpu = readings(.cpu, after: [sample(.valid(MetricValue(42, .percent, split: split)), at: start)])
-    let row = Metric.cpu.detailRow(for: cpu, source: source(.utilization, "Mach counters"), at: start)
+
+    let row = Metric.cpu.detailRow(
+      for: cpu, source: source(.utilization, "Mach counters"), at: start, temperatureUnit: .celsius)
 
     #expect(row.valueText == "42%")
     #expect(row.explanation == "Mach counters\nUser 18% (apps), system 24% (macOS kernel)")
@@ -83,13 +87,13 @@ struct DetailContentTests {
     let percent = Metric.memory.detailRow(
       for: readings(.memory, after: [sample(value(86.6))]),
       source: source(.memoryUsage),
-      at: start
+      at: start, temperatureUnit: .celsius
     )
 
     let celsius = Metric.temperature.detailRow(
       for: readings(.temperature, after: [sample(value(68.4, .celsius))]),
       source: source(.temperature),
-      at: start
+      at: start, temperatureUnit: .celsius
     )
 
     #expect((percent.valueText, percent.spokenValue) == ("87%", "87 percent"))
@@ -101,7 +105,7 @@ struct DetailContentTests {
     let row = Metric.cpu.detailRow(
       for: readings(.cpu, after: [sample(value(23), at: start)]),
       source: source(.utilization),
-      at: start + .seconds(1)
+      at: start + .seconds(1), temperatureUnit: .celsius
     )
 
     #expect(row.status == .current(acquiredAt: start))
@@ -110,7 +114,9 @@ struct DetailContentTests {
 
   @Test func staleValueKeepsItsNumberAndSaysSinceWhen() {
     let readings = readings(.cpu, after: [sample(value(23), at: start)])
-    let row = Metric.cpu.detailRow(for: readings, source: source(.utilization), at: start + .seconds(5))
+
+    let row = Metric.cpu.detailRow(
+      for: readings, source: source(.utilization), at: start + .seconds(5), temperatureUnit: .celsius)
 
     #expect(row.valueText == "23%")
     #expect(row.isStale)
@@ -119,7 +125,9 @@ struct DetailContentTests {
 
   @Test func failedSampleKeepsTheLastValueCurrentUntilItGoesStale() {
     let readings = readings(.gpu, after: [sample(value(40), at: start), sample(failed, at: start + .seconds(2))])
-    let row = Metric.gpu.detailRow(for: readings, source: source(.activeResidency), at: start + .seconds(4))
+
+    let row = Metric.gpu.detailRow(
+      for: readings, source: source(.activeResidency), at: start + .seconds(4), temperatureUnit: .celsius)
 
     #expect(row.valueText == "40%")
     #expect(row.status == .current(acquiredAt: start))
@@ -137,7 +145,7 @@ struct DetailContentTests {
     let row = Metric.temperature.detailRow(
       for: readings(.temperature, after: samples),
       source: source(.temperature),
-      at: start
+      at: start, temperatureUnit: .celsius
     )
 
     #expect(row.valueText == "—")
@@ -151,7 +159,8 @@ struct DetailContentTests {
     [sample(.unavailable(.noValue(.awaitingBaseline)))],
   ])
   func firstValueOnItsWayIsMeasuringWithoutWords(samples: [MetricSample]) {
-    let row = Metric.cpu.detailRow(for: readings(.cpu, after: samples), source: source(.utilization), at: start)
+    let row = Metric.cpu.detailRow(
+      for: readings(.cpu, after: samples), source: source(.utilization), at: start, temperatureUnit: .celsius)
 
     #expect(row.isMeasuring)
     #expect(row.valueText == "—")
@@ -187,25 +196,30 @@ struct DetailContentTests {
 
   @Test func historyChartCoversTheWholeHistoryAndSummarizesItInWords() throws {
     let samples = [sample(value(12.4)), sample(failed), sample(value(57.6))]
-    let chart = try #require(Metric.cpu.historyChart(for: readings(.cpu, after: samples), at: start))
+
+    let chart = try #require(
+      Metric.cpu.historyChart(for: readings(.cpu, after: samples), at: start, temperatureUnit: .celsius))
 
     #expect(chart.levels == Array(repeating: nil, count: 57) + [12.4, nil, 57.6])
     #expect(chart.span == .seconds(120))
     #expect(chart.spokenSummary == "Last 2 minutes: lowest 12 percent, highest 58 percent")
-    #expect(Metric.memory.historyChart(for: readings(.memory), at: start) == nil)
+    #expect(Metric.memory.historyChart(for: readings(.memory), at: start, temperatureUnit: .celsius) == nil)
   }
 
   @Test func temperatureHistoryCoversTenMinutesInDegrees() throws {
     let samples = [sample(value(61.6, .celsius)), sample(value(88.6, .celsius))]
-    let chart = try #require(
-      Metric.temperature.historyChart(for: readings(.temperature, interval: .seconds(10), after: samples), at: start))
 
-    #expect(chart.unit == .celsius)
+    let chart = try #require(
+      Metric.temperature.historyChart(
+        for: readings(.temperature, interval: .seconds(10), after: samples), at: start, temperatureUnit: .celsius))
+
+    #expect(chart.unit == .degrees(.celsius))
     #expect(chart.spokenSummary == "Last 10 minutes: lowest 62 degrees Celsius, highest 89 degrees Celsius")
   }
 
   @Test func historyWithoutValuesSaysSo() throws {
-    let chart = try #require(Metric.gpu.historyChart(for: readings(.gpu, after: [sample(failed)]), at: start))
+    let chart = try #require(
+      Metric.gpu.historyChart(for: readings(.gpu, after: [sample(failed)]), at: start, temperatureUnit: .celsius))
 
     #expect(chart.spokenSummary == "No values in the last 2 minutes")
   }
@@ -222,8 +236,8 @@ struct DetailContentTests {
   }
 
   @Test func sensorRangeShowsItsHottestAndSaysItsRange() {
-    let range = SensorRange(PartTemperature(part: .cpu, coolest: 75.6, hottest: 88.6))
-    let single = SensorRange(PartTemperature(part: .cpu, coolest: 60.2, hottest: 59.8))
+    let range = SensorRange(PartTemperature(part: .cpu, coolest: 75.6, hottest: 88.6), unit: .celsius)
+    let single = SensorRange(PartTemperature(part: .cpu, coolest: 60.2, hottest: 59.8), unit: .celsius)
 
     #expect((range.label, range.valueText) == ("CPU", "89°"))
     #expect(range.spokenText == "CPU sensors, 76 to 89 degrees Celsius")

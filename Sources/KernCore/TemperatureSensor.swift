@@ -153,6 +153,7 @@ struct SMCTemperatures: TemperatureSource {
 
   mutating func close() {
     connection?.close()
+
     connection = nil
     keys = []
   }

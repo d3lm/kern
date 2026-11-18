@@ -84,6 +84,7 @@ struct RecordingSensor: MetricSensor {
 
     @Test func onlyTheNamedMetricsSensorFails() throws {
       let options = try DebugLaunchOptions(arguments: ["Kern", "--fail", "gpu"])
+
       var gpu = options.sensor(RecordingSensor(calls: calls), for: .gpu, launchedAt: .now)
       var cpu = options.sensor(RecordingSensor(calls: calls), for: .cpu, launchedAt: .now)
 
@@ -121,6 +122,7 @@ struct RecordingSensor: MetricSensor {
 
     @Test func failureForSecondsCountsFromLaunch() throws {
       let options = try DebugLaunchOptions(arguments: ["Kern", "--fail", "cpu:30"])
+
       var launchedLongAgo = options.sensor(RecordingSensor(calls: calls), for: .cpu, launchedAt: .now - .seconds(31))
       var launchedJustNow = options.sensor(RecordingSensor(calls: calls), for: .cpu, launchedAt: .now)
 

@@ -27,6 +27,7 @@ enum AreaChart {
 
       while before > slot - radius, before > levels.startIndex, let level = levels[before - 1] {
         neighbors.append(level)
+
         before -= 1
       }
 
@@ -34,6 +35,7 @@ enum AreaChart {
 
       while after < slot + radius, after < levels.endIndex - 1, let level = levels[after + 1] {
         neighbors.append(level)
+
         after += 1
       }
 
@@ -45,6 +47,7 @@ enum AreaChart {
 
   static func areas(_ levels: [Double?], in plot: CGRect, pixel: CGFloat) -> [[CGPoint]] {
     let slotWidth = plot.width / CGFloat(levels.count)
+
     var areas: [[CGPoint]] = []
     var run: [(slot: Int, top: CGFloat)] = []
 
@@ -67,6 +70,7 @@ enum AreaChart {
     for (slot, level) in levels.enumerated() {
       guard let level else {
         closeRun()
+
         continue
       }
 

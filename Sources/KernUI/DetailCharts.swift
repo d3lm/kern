@@ -39,6 +39,7 @@ final class LevelBar: NSView {
     let end = width * fill.upperBound
 
     guard fill.lowerBound > 0 else { return 0...max(pixel, end) }
+
     guard end - start < minimum else { return start...end }
 
     let middle = min(max((start + end) / 2, minimum / 2), width - minimum / 2)
@@ -167,6 +168,7 @@ final class HistoryChartView: NSView {
     case .gradient(let gradient):
       context.addRects(bars.map(\.rect))
       context.clip()
+
       context.drawLinearGradient(
         gradient.cgGradient,
         start: CGPoint(x: bounds.minX, y: bounds.maxY),
@@ -197,6 +199,7 @@ final class CoreChartView: NSView {
   init(title: String, kinds: [CoreKind]?, style: DetailStyle) {
     let counts = [CoreKind.performance, .efficiency].map { kind in (kind, kinds?.count { $0 == kind } ?? 0) }
     let natural = counts.filter { $0.1 > 0 }.map { CoreGroupView.naturalWidth(count: $0.1, style: style) }
+
     let fitsOnOneLine =
       natural.reduce(0, +) + CGFloat(max(natural.count - 1, 0)) * style.coreGroupGap
       <= style.contentWidth
@@ -217,9 +220,11 @@ final class CoreChartView: NSView {
         let isLast = group === groups.last && groups.count > 1
 
         group.setFrameOrigin(NSPoint(x: isLast ? style.contentWidth - group.frame.width : 0, y: 0))
+
         top = max(top, group.frame.height)
       } else {
         group.setFrameOrigin(NSPoint(x: 0, y: top == 0 ? 0 : top + style.coreLineSpacing))
+
         top = group.frame.maxY
       }
 
@@ -256,6 +261,7 @@ final class CoreChartView: NSView {
     guard groups.isEmpty, let context = NSGraphicsContext.current?.cgContext else { return }
 
     context.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
+
     context.setFillColor(NSColor.secondaryLabelColor.cgColor)
     missing.draw(at: CGPoint(x: 0, y: (bounds.height + style.captionFont.capHeight) / 2), in: context)
   }
@@ -347,6 +353,7 @@ final class CoreGroupView: NSView {
     let gradient = style.cpuGradient.cgGradient
 
     context.textMatrix = .identity
+
     context.setFillColor(NSColor.secondaryLabelColor.cgColor)
     label.draw(at: CGPoint(x: 0, y: textY), in: context)
 
@@ -367,14 +374,17 @@ final class CoreGroupView: NSView {
       context.saveGState()
       context.addPath(shape)
       context.clip()
+
       context.clip(
         to: CGRect(x: track.minX, y: track.minY, width: track.width, height: track.height * min(share, 100) / 100))
+
       context.drawLinearGradient(
         gradient,
         start: CGPoint(x: track.minX, y: track.maxY),
         end: CGPoint(x: track.minX, y: track.minY),
         options: []
       )
+
       context.restoreGState()
     }
   }

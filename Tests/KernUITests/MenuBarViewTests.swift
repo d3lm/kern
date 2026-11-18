@@ -18,10 +18,11 @@ final class MenuBarViewTests {
 
   /// A view outside a window is never drawn, so each view gets an offscreen window.
   func menuBarView(_ layout: MenuBarLayout = .standard) -> MenuBarView {
-    let view = MenuBarView(layout: layout)
+    let view = MenuBarView(layout: layout, temperatureUnit: .celsius)
     let window = NSWindow(contentRect: view.frame, styleMask: .borderless, backing: .buffered, defer: false)
 
     window.contentView = view
+
     windows.append(window)
 
     _ = redraws(of: view)
@@ -55,7 +56,7 @@ final class MenuBarViewTests {
 
   @Test func widgetsAppearInTheConfiguredOrderWithoutOverlapping() {
     for widgets in [[Widget.temperature, .cpu, .gpu], [.gpu, .temperature, .cpu], [.cpu]] {
-      let view = MenuBarView(layout: MenuBarLayout(widgets: widgets, showsLabels: true)!)
+      let view = MenuBarView(layout: MenuBarLayout(widgets: widgets, showsLabels: true)!, temperatureUnit: .celsius)
       let frames = view.widgetViews.map(\.frame)
 
       #expect(view.widgetViews.map(\.widget) == widgets)
@@ -66,9 +67,22 @@ final class MenuBarViewTests {
     }
   }
 
+  @Test func layoutWithoutWidgetsShowsKernsSymbolSoTheItemCanStillBeClicked() throws {
+    let view = MenuBarView(layout: MenuBarLayout(widgets: [], showsLabels: true)!, temperatureUnit: .celsius)
+    let placeholder = try #require(view.placeholder)
+
+    #expect(view.widgetViews.isEmpty)
+    #expect(view.subviews == [placeholder])
+    #expect(view.intrinsicContentSize.width == placeholder.frame.width)
+    #expect(placeholder.frame.width > 10)
+    #expect(MenuBarView(layout: .standard, temperatureUnit: .celsius).placeholder == nil)
+  }
+
   @Test func hiddenLabelsNarrowOnlyTheLabelledWidgets() {
-    let labelled = MenuBarView(layout: .standard)
-    let unlabelled = MenuBarView(layout: MenuBarLayout(widgets: [.temperature, .cpu, .gpu], showsLabels: false)!)
+    let labelled = MenuBarView(layout: .standard, temperatureUnit: .celsius)
+
+    let unlabelled = MenuBarView(
+      layout: MenuBarLayout(widgets: [.temperature, .cpu, .gpu], showsLabels: false)!, temperatureUnit: .celsius)
 
     func column(_ label: String) -> CGFloat { style.labelWidth(label) + style.labelSpacing }
 
@@ -78,7 +92,7 @@ final class MenuBarViewTests {
   }
 
   @Test func everyTemperatureFitsTheWidthReservedForIt() {
-    let texts = (0...999).map { WidgetContent.text(for: MetricValue(Double($0), .celsius)) }
+    let texts = (0...999).map { WidgetContent.text(for: MetricValue(Double($0), .celsius), temperatureUnit: .celsius) }
     let widest = (texts + [WidgetContent.unavailableText]).map { style.textWidth($0, in: style.valueFont) }.max()!
 
     #expect(widest <= style.valueWidth(of: .temperature))
@@ -154,6 +168,7 @@ final class MenuBarViewTests {
 
   @Test func everyCPUSampleRedrawsTheChartOnce() {
     let view = menuBarView()
+
     var samples: [MetricSample] = []
     var draws: [[Widget]] = []
 

@@ -7,11 +7,12 @@ private let logger = Logger(subsystem: "Kern", category: "menu bar")
 final class WidgetView: NSView {
   let widget: Widget
   let widestWidth: CGFloat
+  let temperatureUnit: TemperatureUnit
   private(set) var contentWidth: CGFloat
   var onContentWidthChange: () -> Void = {}
 
-  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale. The store
-  /// counts staleness with the interval in force then, which the readings shown earlier cannot know.
+  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale. The view keeps
+  /// no readings to check itself, because a copy of a history would make the store copy it on its next sample.
   var onStaleDeadline: () -> Void = {}
 
   private let style: MenuBarStyle
@@ -22,8 +23,9 @@ final class WidgetView: NSView {
   private lazy var staleCheck = StaleCheck { [weak self] in self?.onStaleDeadline() }
   private(set) var drawCount = 0
 
-  init(widget: Widget, label: String?, style: MenuBarStyle) {
+  init(widget: Widget, label: String?, temperatureUnit: TemperatureUnit, style: MenuBarStyle) {
     self.widget = widget
+    self.temperatureUnit = temperatureUnit
     self.style = style
     self.labelLetters = label.map { $0.map { TextLine(String($0), font: style.labelFont) } } ?? []
     self.valueOffset = style.valueOffset(label: label)
@@ -39,7 +41,7 @@ final class WidgetView: NSView {
   }
 
   func show(_ readings: MetricReadings) {
-    let content = widget.content(for: readings, at: .now)
+    let content = widget.content(for: readings, at: .now, temperatureUnit: temperatureUnit)
 
     render(content)
 
@@ -57,6 +59,7 @@ final class WidgetView: NSView {
 
       if contentWidth != self.contentWidth {
         self.contentWidth = contentWidth
+
         onContentWidthChange()
       }
     }
@@ -77,6 +80,7 @@ final class WidgetView: NSView {
     let value = NSRect(x: valueOffset, y: 0, width: bounds.width - valueOffset, height: bounds.height)
 
     context.textMatrix = .identity
+
     drawLabel(in: context, pixel: pixel)
 
     switch content {
@@ -123,6 +127,7 @@ final class WidgetView: NSView {
     let font = style.labelFont
     let columnWidth = labelLetters.map(\.width).max() ?? 0
     let height = CGFloat(labelLetters.count - 1) * style.labelLineHeight + font.capHeight
+
     var baseline = (bounds.height + height) / 2 - font.capHeight
 
     context.setFillColor(ink(style.valueAlpha).cgColor)
@@ -131,6 +136,7 @@ final class WidgetView: NSView {
       let x = (columnWidth - letter.width) / 2
 
       letter.draw(at: CGPoint(x: aligned(x, to: pixel), y: aligned(baseline, to: pixel)), in: context)
+
       baseline -= style.labelLineHeight
     }
   }
@@ -138,6 +144,7 @@ final class WidgetView: NSView {
   private func drawChart(_ levels: [Double?], in box: NSRect, alpha: CGFloat, pixel: CGFloat) {
     let frame = NSRect(x: box.minX, y: box.minY, width: style.chartWidth, height: style.height)
     let inset = style.outlineWidth / 2
+
     let outline = NSBezierPath(
       roundedRect: frame.insetBy(dx: inset, dy: inset),
       xRadius: style.cornerRadius,

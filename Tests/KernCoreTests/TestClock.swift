@@ -50,6 +50,7 @@ final class TestClock: Clock, Sendable {
       try await withCheckedThrowingContinuation { continuation in
         let immediateResult: Result<Void, any Error>? = state.withLock { state in
           if Task.isCancelled { return .failure(CancellationError()) }
+
           if deadline <= state.now { return .success(()) }
 
           state.sleepers[id] = Sleeper(deadline: deadline, continuation: continuation)

@@ -74,6 +74,7 @@ struct TemperatureSensorTests {
       sample.state
         == .valid(
           MetricValue(71.5, .celsius, temperatures: [PartTemperature(part: .cpu, coolest: 60, hottest: 71.5)])))
+
     #expect(sample.source == SourceID("temperature.smc.cpu"))
     #expect(sample.quantity == .temperature)
     #expect(await provider.lastSuccessfulSample == sample)

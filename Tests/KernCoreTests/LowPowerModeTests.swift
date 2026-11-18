@@ -15,6 +15,7 @@ extension MetricsCoordinatorTests {
     let coordinator = coordinator()
 
     coordinator.areDetailsVisible = true
+
     coordinator.start()
 
     await run(until: 6, schedules: 5)
@@ -61,7 +62,9 @@ extension MetricsCoordinatorTests {
     coordinator.setInterval(.seconds(8), for: .cpu)
     coordinator.setInterval(.seconds(30), for: .temperature)
     coordinator.setInterval(.seconds(12), for: .memoryPressure)
+
     coordinator.powerState.isLowPowerModeEnabled = true
+
     coordinator.start()
 
     await run(until: 60, schedules: 3)
@@ -91,6 +94,7 @@ extension MetricsCoordinatorTests {
 
     coordinator.lowPowerModeBehavior = .override
     coordinator.powerState.isLowPowerModeEnabled = true
+
     coordinator.start()
 
     await run(until: 6, schedules: 2)

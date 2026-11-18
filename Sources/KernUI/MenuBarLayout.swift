@@ -1,10 +1,6 @@
-import Foundation
 import KernCore
-import os
 
-private let logger = Logger(subsystem: "Kern", category: "menu bar")
-
-enum Widget: String, CaseIterable, Sendable {
+public enum Widget: String, CaseIterable, Sendable {
   case temperature
   case cpu
   case gpu
@@ -29,58 +25,124 @@ enum Widget: String, CaseIterable, Sendable {
   }
 }
 
-struct MenuBarLayout: Equatable, Sendable {
-  let widgets: [Widget]
-  let showsLabels: Bool
+public struct MenuBarLayout: Equatable, Sendable {
+  /// Holds every widget once, in the order the menu bar shows them from left to right, hidden ones included.
+  public private(set) var order: [Widget]
+  public private(set) var hidden: Set<Widget>
+  /// Holds the widgets whose label is hidden. Only widgets that have a label are in it.
+  public private(set) var unlabeled: Set<Widget>
 
-  static let standard = MenuBarLayout(widgets: [.temperature, .cpu, .gpu, .memory], showsLabels: true)!
+  public static let standard = MenuBarLayout(widgets: Widget.allCases, unlabeled: [])!
 
-  init?(widgets: [Widget], showsLabels: Bool) {
-    guard !widgets.isEmpty, Set(widgets).count == widgets.count else { return nil }
+  /// Lists `widgets` first, in their order, then the widgets missing from it, hidden and in their standard order.
+  /// Returns nil when `widgets` names a widget twice.
+  init?(widgets: [Widget], hidden: Set<Widget> = [], unlabeled: Set<Widget>) {
+    guard Set(widgets).count == widgets.count else { return nil }
 
-    self.widgets = widgets
-    self.showsLabels = showsLabels
+    let missing = Widget.allCases.filter { !widgets.contains($0) }
+
+    self.order = widgets + missing
+    self.hidden = hidden.union(missing)
+    self.unlabeled = unlabeled.filter { $0.label != nil }
+  }
+
+  init?(widgets: [Widget], hidden: Set<Widget> = [], showsLabels: Bool) {
+    self.init(widgets: widgets, hidden: hidden, unlabeled: showsLabels ? [] : Set(Widget.allCases))
+  }
+
+  public var widgets: [Widget] {
+    order.filter { !hidden.contains($0) }
+  }
+
+  public func isShown(_ widget: Widget) -> Bool {
+    !hidden.contains(widget)
+  }
+
+  public func label(of widget: Widget) -> String? {
+    unlabeled.contains(widget) ? nil : widget.label
+  }
+
+  public mutating func setShowsLabel(_ showsLabel: Bool, _ widget: Widget) {
+    guard widget.label != nil else { return }
+
+    if showsLabel {
+      unlabeled.remove(widget)
+    } else {
+      unlabeled.insert(widget)
+    }
+  }
+
+  public mutating func setShown(_ isShown: Bool, _ widget: Widget) {
+    if isShown {
+      hidden.remove(widget)
+    } else {
+      hidden.insert(widget)
+    }
+  }
+
+  /// Shows `widget` just before `target`, or after every shown widget when `target` is nil. Placing a widget before
+  /// itself shows it where it is.
+  public mutating func place(_ widget: Widget, before target: Widget?) {
+    hidden.remove(widget)
+
+    guard target != widget, !isShown(widget, before: target) else { return }
+
+    order.removeAll { $0 == widget }
+
+    let index =
+      target.flatMap { order.firstIndex(of: $0) }
+      ?? order.lastIndex { !hidden.contains($0) }.map { $0 + 1 }
+      ?? 0
+
+    order.insert(widget, at: index)
   }
 }
 
 extension MenuBarLayout {
-  static let defaultsKey = "menuBarLayout"
+  private func isShown(_ widget: Widget, before target: Widget?) -> Bool {
+    let shown = widgets
 
-  static func configured(in defaults: UserDefaults) -> MenuBarLayout {
-    guard let value = defaults.object(forKey: defaultsKey) else { return .standard }
+    guard let index = shown.firstIndex(of: widget) else { return false }
 
-    guard let layout = MenuBarLayout(propertyList: value) else {
-      logger.error(
-        "ignoring the invalid \(defaultsKey, privacy: .public): \(String(describing: value), privacy: .public)")
-
-      return .standard
-    }
-
-    return layout
+    return shown.indices.contains(index + 1) ? shown[index + 1] == target : target == nil
   }
 
+  /// `widgets` lists the widgets in their order, `hidden` those of them that are hidden, and `unlabeled` those whose
+  /// label is hidden. A widget missing from `widgets` is hidden, so a value written before `hidden` existed still
+  /// shows exactly the widgets it lists. A value written before `unlabeled` existed has `showsLabels`, which shows or
+  /// hides every label.
   init?(propertyList: Any) {
     guard let dictionary = propertyList as? [String: Any],
-      let names = dictionary["widgets"] as? [String],
-      let showsLabels = dictionary["showsLabels"].flatMap(Self.boolean)
+      let widgets = Self.widgets(dictionary["widgets"]),
+      let hidden = dictionary["hidden"] == nil ? [] : Self.widgets(dictionary["hidden"])
     else {
       return nil
     }
 
-    let widgets = names.compactMap(Widget.init(rawValue:))
+    if dictionary["unlabeled"] != nil {
+      guard let unlabeled = Self.widgets(dictionary["unlabeled"]) else { return nil }
 
-    guard widgets.count == names.count else { return nil }
+      self.init(widgets: widgets, hidden: Set(hidden), unlabeled: Set(unlabeled))
+    } else {
+      guard let showsLabels = dictionary["showsLabels"].flatMap(PropertyListValue.boolean) else { return nil }
 
-    self.init(widgets: widgets, showsLabels: showsLabels)
+      self.init(widgets: widgets, hidden: Set(hidden), showsLabels: showsLabels)
+    }
   }
 
-  /// A property list written as text, as by `defaults write`, has no Booleans, only strings.
-  private static func boolean(_ value: Any) -> Bool? {
-    switch value {
-    case let value as Bool: value
-    case let text as String where ["YES", "TRUE", "1"].contains(text.uppercased()): true
-    case let text as String where ["NO", "FALSE", "0"].contains(text.uppercased()): false
-    default: nil
-    }
+  private static func widgets(_ value: Any?) -> [Widget]? {
+    guard let names = value as? [String] else { return nil }
+
+    let widgets = names.compactMap(Widget.init(rawValue:))
+
+    return widgets.count == names.count ? widgets : nil
+  }
+
+  var propertyList: [String: Any] {
+    [
+      "widgets": order.map(\.rawValue),
+      "hidden": order.filter(hidden.contains).map(\.rawValue),
+      "unlabeled": order.filter(unlabeled.contains).map(\.rawValue),
+    ]
   }
 }

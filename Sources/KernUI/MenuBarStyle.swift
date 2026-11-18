@@ -14,6 +14,8 @@ struct MenuBarStyle {
   let chartPadding: CGFloat = 1
   let chartSmoothing = 2
   let cornerRadius: CGFloat = 3
+  let placeholderSymbol = "gauge.with.dots.needle.33percent"
+  let placeholderPointSize: CGFloat = 14
 
   let valueAlpha: CGFloat = 1
   let staleAlpha: CGFloat = 0.4

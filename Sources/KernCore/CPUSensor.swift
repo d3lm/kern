@@ -40,6 +40,7 @@ public struct CPUSensor: MetricSensor {
 
   public mutating func open() throws(SensorError) {
     previous = nil
+
     try ticks.open()
   }
 
@@ -57,6 +58,7 @@ public struct CPUSensor: MetricSensor {
 
   public mutating func close() {
     ticks.close()
+
     previous = nil
   }
 

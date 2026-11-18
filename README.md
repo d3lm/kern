@@ -46,19 +46,17 @@ Or open `App/Kern.xcodeproj` in Xcode and run the `Kern` scheme.
 
 Click the menu-bar item for the details of every metric.
 
-By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory pressure, in that order. To change the order, hide widgets, or hide the `CPU`, `GPU`, and `RAM` labels, set the layout with `defaults` and restart Kern.
+By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory pressure, in that order.
 
-```sh
-defaults write dev.kern.Kern menuBarLayout '{ widgets = (gpu, cpu); showsLabels = NO; }'
-defaults delete dev.kern.Kern menuBarLayout # back to the default
-```
+<p align="center">
+  <img src="assets/settings-general.png" alt="The General tab of Kern's Settings, with launch at login, the temperature unit, the Low Power Mode behavior, and Restore Defaults" width="270">
+  <img src="assets/settings-metrics.png" alt="The Metrics tab of Kern's Settings, with the sampling interval of each metric and the graph sample count" width="270">
+  <img src="assets/settings-menu-bar.png" alt="The Menu Bar tab of Kern's Settings, with the widgets in the menu bar, the available widgets, and a label switch for each widget" width="270">
+</p>
 
-Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU and GPU every 5 seconds, memory every 10, and temperature every 20, instead of every 2, 5, and 10. To keep the usual intervals in Low Power Mode, set the behavior to `override` and restart Kern.
+Kern keeps its settings in the `dev.kern.Kern` defaults domain.
 
-```sh
-defaults write dev.kern.Kern lowPowerModeBehavior override
-defaults delete dev.kern.Kern lowPowerModeBehavior # back to adaptive, the default
-```
+Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU and GPU every 5 seconds, memory every 10, and temperature every 20, unless an interval is set longer than that.
 
 A sensor that fails is tried again after one interval, then after two, four, and so on, until the wait would pass a minute. Its readings return at the first retry that works.
 
@@ -158,27 +156,37 @@ openings: 50, 0 failed checks
 click to drawn, ms: median 40.7, p95 50.9, max 61.0
 ```
 
-`kern-power-bench` runs Kern and announces sleep and wake to it ten times, without putting the Mac to sleep. It puts an item in the menu bar while it runs, next to Kern's own if Kern is running. `Scripts/power-report.swift` reads Kern's debug log and prints what Kern did at each sleep and wake. It checks that nothing was sampled during a sleep, that every provider was stopped and started again, that every metric was sampled within 5 seconds of the wake without a burst, and that each metric still has exactly one schedule at the end:
+`kern-power-bench` runs Kern and announces sleep and wake to it ten times, without putting the Mac to sleep. It puts an item in the menu bar while it runs, next to Kern's own if Kern is running. `Scripts/schedule-report.swift` reads Kern's debug log and prints what Kern did at each sleep and wake. It checks that nothing was sampled during a sleep, that every provider was stopped and started again, that every metric was sampled within 5 seconds of the wake without a burst, and that each metric still has exactly one schedule at the end:
 
 ```sh
 $ swift build -c release --product kern-power-bench
 $ log stream --style ndjson --level debug --predicate 'subsystem == "Kern" && process == "kern-power-bench"' \
-  | swift Scripts/power-report.swift    # in a second terminal, until Ctrl-C
+  | swift Scripts/schedule-report.swift    # in a second terminal, until Ctrl-C
 $ .build/release/kern-power-bench 10
 ```
 
 The script reports real sleeps the same way. Start it with `process == "Kern"` in the predicate while the app runs, put the Mac to sleep and wake it as often as wanted, and press Ctrl-C. With more than one Kern running, add `&& processID == <pid>` to the predicate.
 
+`kern-settings-bench` runs Kern, opens its details with a click and presses ⌘, in them, which must open Settings, and then makes 100 random settings changes. It prints Kern's memory before and after the changes, and the same report script checks that every metric has exactly one schedule after the last change, or none when it is turned off. It keeps its settings in its own defaults domain, so Kern's are not touched:
+
+```sh
+$ swift build -c release --product kern-settings-bench
+$ log stream --style ndjson --level debug --predicate 'subsystem == "Kern" && process == "kern-settings-bench"' \
+  | swift Scripts/schedule-report.swift    # in a second terminal, until Ctrl-C once the bench has ended
+$ .build/release/kern-settings-bench 100
+```
+
 ## Project layout
 
-| Path                         | Contents                                                        |
-| ---------------------------- | --------------------------------------------------------------- |
-| `Sources/KernCore`           | Chip detection, sensors, and metric collection                  |
-| `Sources/KernUI`             | The menu bar, the popover, and the app's startup                |
-| `Sources/kern-probe`         | The development probe                                           |
-| `Sources/kern-popover-bench` | The popover measurement tool                                    |
-| `Sources/kern-power-bench`   | The sleep and wake test tool                                    |
-| `App`                        | The Xcode project with the app's entry point and build settings |
-| `Tests/KernCoreTests`        | Unit tests of the core                                          |
-| `Tests/KernUITests`          | Unit tests of the menu bar and the popover                      |
-| `Scripts`                    | Development measurement scripts                                 |
+| Path                          | Contents                                                        |
+| ----------------------------- | --------------------------------------------------------------- |
+| `Sources/KernCore`            | Chip detection, sensors, and metric collection                  |
+| `Sources/KernUI`              | The menu bar, the popover, Settings, and the app's startup      |
+| `Sources/kern-probe`          | The development probe                                           |
+| `Sources/kern-popover-bench`  | The popover measurement tool                                    |
+| `Sources/kern-power-bench`    | The sleep and wake test tool                                    |
+| `Sources/kern-settings-bench` | The settings change test tool                                   |
+| `App`                         | The Xcode project with the app's entry point and build settings |
+| `Tests/KernCoreTests`         | Unit tests of the core                                          |
+| `Tests/KernUITests`           | Unit tests of the menu bar, the popover, and Settings           |
+| `Scripts`                     | Development measurement scripts                                 |

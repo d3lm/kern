@@ -9,16 +9,40 @@ struct WidgetContentTests {
     let noSamples = readings(.temperature)
     let onlyFailures = readings(.temperature, after: [sample(failed), sample(failed, at: start + .seconds(10))])
 
-    #expect(Widget.temperature.content(for: noSamples, at: start) == .reading("—", isStale: false))
-    #expect(Widget.temperature.content(for: onlyFailures, at: start) == .reading("—", isStale: false))
+    #expect(
+      Widget.temperature.content(for: noSamples, at: start, temperatureUnit: .celsius) == .reading("—", isStale: false))
+
+    #expect(
+      Widget.temperature.content(for: onlyFailures, at: start, temperatureUnit: .celsius)
+        == .reading("—", isStale: false))
   }
 
   @Test func temperatureIsWholeDegrees() {
     for (celsius, text) in [(46.4, "46°"), (46.5, "47°"), (9.6, "10°"), (129.7, "130°")] {
       let readings = readings(.temperature, after: [sample(value(celsius, .celsius))])
 
-      #expect(Widget.temperature.content(for: readings, at: start) == .reading(text, isStale: false))
+      #expect(
+        Widget.temperature.content(for: readings, at: start, temperatureUnit: .celsius)
+          == .reading(text, isStale: false))
     }
+  }
+
+  @Test func temperatureInFahrenheitIsWholeDegreesFahrenheit() {
+    for (celsius, text) in [(46.4, "116°"), (0, "32°"), (100, "212°"), (130, "266°")] {
+      let readings = readings(.temperature, after: [sample(value(celsius, .celsius))])
+
+      #expect(
+        Widget.temperature.content(for: readings, at: start, temperatureUnit: .fahrenheit)
+          == .reading(text, isStale: false))
+    }
+  }
+
+  @Test func gaugeIgnoresTheTemperatureUnit() {
+    let readings = readings(.gpu, after: [sample(value(40))])
+
+    #expect(
+      Widget.gpu.content(for: readings, at: start, temperatureUnit: .fahrenheit) == .level(.percent(40), isStale: false)
+    )
   }
 
   @Test func gpuHasNoLevelWhenItsProviderHasNeverHadAValue() {
@@ -30,11 +54,14 @@ struct WidgetContentTests {
         sample(.unavailable(.notStarted), at: start + .seconds(4)),
       ])
 
-    #expect(Widget.gpu.content(for: unavailable, at: start + .seconds(4)) == .level(.unavailable, isStale: false))
+    #expect(
+      Widget.gpu.content(for: unavailable, at: start + .seconds(4), temperatureUnit: .celsius)
+        == .level(.unavailable, isStale: false))
   }
 
   @Test func gaugeIsMeasuringUntilTheFirstValueAndUnavailableWithoutOneForAnyOtherReason() {
     let measuring = [[], [sample(.unavailable(.noValue(.awaitingBaseline)))]]
+
     let unavailable = [
       [sample(failed)],
       [sample(.unavailable(.noValue(.countersUnchanged)))],
@@ -42,24 +69,30 @@ struct WidgetContentTests {
     ]
 
     for samples in measuring {
-      #expect(Widget.gpu.content(for: readings(.gpu, after: samples), at: start) == .level(.measuring, isStale: false))
+      #expect(
+        Widget.gpu.content(for: readings(.gpu, after: samples), at: start, temperatureUnit: .celsius)
+          == .level(.measuring, isStale: false))
     }
 
     for samples in unavailable {
       #expect(
-        Widget.gpu.content(for: readings(.gpu, after: samples), at: start) == .level(.unavailable, isStale: false))
+        Widget.gpu.content(for: readings(.gpu, after: samples), at: start, temperatureUnit: .celsius)
+          == .level(.unavailable, isStale: false))
     }
 
     let restarted = readings(.gpu, after: [sample(value(40)), sample(.unavailable(.noValue(.awaitingBaseline)))])
 
-    #expect(Widget.gpu.content(for: restarted, at: start) == .level(.percent(40), isStale: false))
+    #expect(
+      Widget.gpu.content(for: restarted, at: start, temperatureUnit: .celsius) == .level(.percent(40), isStale: false))
   }
 
   @Test func gpuIsWholePercent() {
     for (percent, level) in [(0.0, 0), (4.6, 5), (99.5, 100), (100.0, 100)] {
       let readings = readings(.gpu, after: [sample(value(percent))])
 
-      #expect(Widget.gpu.content(for: readings, at: start) == .level(.percent(level), isStale: false))
+      #expect(
+        Widget.gpu.content(for: readings, at: start, temperatureUnit: .celsius)
+          == .level(.percent(level), isStale: false))
     }
   }
 
@@ -67,23 +100,41 @@ struct WidgetContentTests {
     let pressure = readings(.memoryPressure, interval: .seconds(5), after: [sample(value(62.4))])
     let unavailable = readings(.memoryPressure, interval: .seconds(5), after: [sample(failed)])
 
-    #expect(Widget.memory.content(for: pressure, at: start) == .level(.percent(62), isStale: false))
-    #expect(Widget.memory.content(for: pressure, at: start + .seconds(11)) == .level(.percent(62), isStale: true))
-    #expect(Widget.memory.content(for: unavailable, at: start) == .level(.unavailable, isStale: false))
+    #expect(
+      Widget.memory.content(for: pressure, at: start, temperatureUnit: .celsius) == .level(.percent(62), isStale: false)
+    )
+
+    #expect(
+      Widget.memory.content(for: pressure, at: start + .seconds(11), temperatureUnit: .celsius)
+        == .level(.percent(62), isStale: true))
+
+    #expect(
+      Widget.memory.content(for: unavailable, at: start, temperatureUnit: .celsius)
+        == .level(.unavailable, isStale: false))
   }
 
   @Test func failedSampleKeepsShowingTheLastValueUntilItGoesStale() {
     let readings = readings(.gpu, after: [sample(value(40)), sample(failed, at: start + .seconds(2))])
 
-    #expect(Widget.gpu.content(for: readings, at: start + .seconds(4)) == .level(.percent(40), isStale: false))
-    #expect(Widget.gpu.content(for: readings, at: start + .seconds(5)) == .level(.percent(40), isStale: true))
+    #expect(
+      Widget.gpu.content(for: readings, at: start + .seconds(4), temperatureUnit: .celsius)
+        == .level(.percent(40), isStale: false))
+
+    #expect(
+      Widget.gpu.content(for: readings, at: start + .seconds(5), temperatureUnit: .celsius)
+        == .level(.percent(40), isStale: true))
   }
 
   @Test func staleTemperatureKeepsItsValueAndIsMarkedStale() {
     let readings = readings(.temperature, interval: .seconds(10), after: [sample(value(55, .celsius))])
 
-    #expect(Widget.temperature.content(for: readings, at: start + .seconds(20)) == .reading("55°", isStale: false))
-    #expect(Widget.temperature.content(for: readings, at: start + .seconds(21)) == .reading("55°", isStale: true))
+    #expect(
+      Widget.temperature.content(for: readings, at: start + .seconds(20), temperatureUnit: .celsius)
+        == .reading("55°", isStale: false))
+
+    #expect(
+      Widget.temperature.content(for: readings, at: start + .seconds(21), temperatureUnit: .celsius)
+        == .reading("55°", isStale: true))
   }
 
   @Test func graphHasOneSlotPerHistorySampleNewestLastAndGapsAreNotZero() {
@@ -96,7 +147,10 @@ struct WidgetContentTests {
         sample(value(75), at: start + .seconds(6)),
       ])
 
-    guard case .graph(let levels, let isStale) = Widget.cpu.content(for: readings, at: start + .seconds(6)) else {
+    guard
+      case .graph(let levels, let isStale) = Widget.cpu.content(
+        for: readings, at: start + .seconds(6), temperatureUnit: .celsius)
+    else {
       Issue.record("the CPU widget draws a graph")
       return
     }
@@ -111,7 +165,7 @@ struct WidgetContentTests {
     let samples = (0..<100).map { sample(value(Double($0)), at: start + .seconds(2 * $0)) }
     let readings = readings(.cpu, after: samples)
 
-    let content = Widget.cpu.content(for: readings, at: start + .seconds(198))
+    let content = Widget.cpu.content(for: readings, at: start + .seconds(198), temperatureUnit: .celsius)
 
     #expect(content == .graph((40..<100).map(Double.init), isStale: false))
   }
@@ -130,8 +184,11 @@ struct WidgetContentTests {
       let readings = readings(widget.metric, after: [sample(value(47, unit), at: start)])
       let deadline = try #require(readings.staleAt)
 
-      #expect(widget.content(for: readings, at: deadline - .nanoseconds(1)) == content(false), "\(widget)")
-      #expect(widget.content(for: readings, at: deadline) == content(true), "\(widget)")
+      #expect(
+        widget.content(for: readings, at: deadline - .nanoseconds(1), temperatureUnit: .celsius) == content(false),
+        "\(widget)")
+
+      #expect(widget.content(for: readings, at: deadline, temperatureUnit: .celsius) == content(true), "\(widget)")
     }
   }
 }

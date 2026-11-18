@@ -86,28 +86,41 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
 
   public func start() {
     isRunning = true
+
     updateSchedules()
   }
 
   public func stop() {
     isRunning = false
+
     updateSchedules()
   }
 
   public func enable(_ metric: Metric) {
     collectors[metric]?.isEnabled = true
+
+    store.setEnabled(true, for: metric)
     updateSchedule(of: metric)
   }
 
+  /// Also empties the metric's readings in the store, which records none of its samples until it is enabled again.
   public func disable(_ metric: Metric) {
     collectors[metric]?.isEnabled = false
+
+    store.setEnabled(false, for: metric)
     updateSchedule(of: metric)
+  }
+
+  /// Keeps the most recent samples of each history that fit the new capacity.
+  public func setHistoryCapacity(_ capacity: Int) {
+    store.setHistoryCapacity(capacity)
   }
 
   public func setInterval(_ interval: Duration, for metric: Metric) {
     precondition(interval > .zero, "a sampling interval must be positive")
 
     collectors[metric]?.configuredInterval = interval
+
     updateInterval(of: metric)
   }
 
@@ -133,6 +146,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
 
   private func updateInterval(of metric: Metric) {
     let collector = collector(metric)
+
     var interval = collector.configuredInterval
 
     if powerState.isLowPowerModeEnabled, lowPowerModeBehavior == .adaptive {
@@ -142,6 +156,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     guard interval != collector.interval else { return }
 
     collectors[metric]?.interval = interval
+
     store.setInterval(interval, for: metric)
 
     if collector.isScheduled {
@@ -317,6 +332,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
       }
 
       tick = tick.advanced(by: retryDelay(after: progress.failures, every: interval))
+
       dropMissedTicks()
     }
   }

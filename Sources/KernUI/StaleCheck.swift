@@ -19,6 +19,7 @@ final class StaleCheck {
     guard deadline != pending?.deadline else { return }
 
     pending?.task.cancel()
+
     pending = nil
 
     guard let deadline else { return }

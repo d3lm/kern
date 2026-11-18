@@ -16,6 +16,7 @@ struct TextLine {
 
   func draw(at point: CGPoint, in context: CGContext) {
     context.textPosition = point
+
     CTLineDraw(line, context)
   }
 }

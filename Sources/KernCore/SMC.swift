@@ -51,6 +51,7 @@ struct SMCConnection: Sendable {
     defer { IOObjectRelease(service) }
 
     var port = io_connect_t(IO_OBJECT_NULL)
+
     let result = IOServiceOpen(service, mach_task_self_, 0, &port)
 
     guard result == KERN_SUCCESS else {

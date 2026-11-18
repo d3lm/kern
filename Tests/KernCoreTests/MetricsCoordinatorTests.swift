@@ -39,6 +39,7 @@ struct ClockedSensor: MetricSensor {
     log.record("read \(clock.seconds)")
 
     if !whileReading.isEmpty { whileReading.removeFirst()() }
+
     if let failure, !hasRecovered { throw failure }
 
     readsSinceOpening += 1
@@ -255,6 +256,7 @@ struct MetricsCoordinatorTests {
 
   @Test func storeHearsOnceForEverySampleTaken() async {
     let coordinator = coordinator()
+
     var heard: [Metric: Int] = [:]
 
     _ = coordinator.store.observe { heard[$0, default: 0] += 1 }
@@ -297,6 +299,7 @@ struct MetricsCoordinatorTests {
 
   @Test func providerWorkNeverRunsOnTheMainThread() async {
     let log = SensorLog()
+
     let coordinator = MetricsCoordinator(
       providers: [.cpu: MetricProvider(sensor: ThreadRecordingSensor(log: log))],
       clock: clock
@@ -400,6 +403,44 @@ struct MetricsCoordinatorTests {
     #expect(logs[.gpu]!.all.filter { !$0.hasPrefix("read") } == ["open", "close", "open"])
   }
 
+  @Test func sampleStillBeingReadWhenItsMetricIsDisabledIsNotRecorded() async {
+    let gate = DispatchSemaphore(value: 0)
+
+    let coordinator = coordinator([.cpu, .gpu]) { metric, sensor in
+      if metric == .gpu { sensor.whileReading = [{}, { gate.wait() }] }
+    }
+
+    coordinator.start()
+
+    await waitUntil { clock.sleeperCount == 2 }
+
+    clock.advance(by: .seconds(2))
+
+    await waitUntil { logs[.gpu]!.reads == [0, 2] && clock.sleeperCount == 1 }
+
+    #expect(coordinator.store[.gpu]?.latest?.value == MetricValue(0, .percent))
+
+    coordinator.disable(.gpu)
+    gate.signal()
+
+    await waitUntil { !logs[.gpu]!.isOpen }
+
+    let gpu = coordinator.store[.gpu]
+
+    #expect(gpu?.isEnabled == false)
+    #expect(gpu?.latest == nil)
+    #expect(gpu?.history?.isEmpty == true)
+  }
+
+  @Test func historyCapacityReachesTheStore() {
+    let coordinator = coordinator([.cpu])
+
+    coordinator.setHistoryCapacity(240)
+
+    #expect(coordinator.store.historyCapacity == 240)
+    #expect(coordinator.store[.cpu]?.history?.capacity == 240)
+  }
+
   @Test func intervalChangeTakesEffectFromTheNextSampleWithoutARestart() async {
     let coordinator = coordinator([.cpu])
 
@@ -443,6 +484,7 @@ struct MetricsCoordinatorTests {
 
   @Test func thousandRandomChangesLeaveExactlyOneScheduleForEachSampledMetric() async {
     let coordinator = coordinator()
+
     var random = SplitMix64(state: 5)
     var enabled = Set(Metric.allCases)
     var detailsVisible = false
@@ -468,6 +510,7 @@ struct MetricsCoordinatorTests {
 
     func countSchedules() {
       for metric in sampled.subtracting(scheduled) { opens[metric, default: 0] += 1 }
+
       for metric in scheduled.subtracting(sampled) { closes[metric, default: 0] += 1 }
 
       scheduled = sampled
@@ -497,12 +540,15 @@ struct MetricsCoordinatorTests {
         enabled.remove(metric)
       case 2:
         detailsVisible.toggle()
+
         coordinator.areDetailsVisible = detailsVisible
       case 3:
         power.isAsleep.toggle()
+
         coordinator.powerState = power
       case 4:
         power.isLowPowerModeEnabled.toggle()
+
         coordinator.powerState = power
       case 5:
         behavior = behavior == .adaptive ? .override : .adaptive
@@ -511,6 +557,7 @@ struct MetricsCoordinatorTests {
         let interval = Duration.seconds(Int.random(in: 1...5, using: &random))
 
         coordinator.setInterval(interval, for: metric)
+
         intervals[metric] = interval
       }
 
@@ -524,6 +571,7 @@ struct MetricsCoordinatorTests {
 
     power.isAsleep = true
     coordinator.powerState = power
+
     countSchedules()
 
     await waitUntil { isEveryChangeCarriedOut() }
@@ -536,6 +584,7 @@ struct MetricsCoordinatorTests {
 
     power.isAsleep = false
     coordinator.powerState = power
+
     countSchedules()
 
     await waitUntil { isEveryChangeCarriedOut() }

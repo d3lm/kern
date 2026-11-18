@@ -24,6 +24,7 @@ public struct GPUSensor: MetricSensor {
 
   public mutating func open() throws(SensorError) {
     previous = nil
+
     try residency.open()
   }
 
@@ -44,6 +45,7 @@ public struct GPUSensor: MetricSensor {
 
   public mutating func close() {
     residency.close()
+
     previous = nil
   }
 
@@ -74,6 +76,7 @@ public struct GPUSensor: MetricSensor {
 
     for (state, ticks) in new {
       guard let oldTicks = old[state] else { return .noValue(.awaitingBaseline) }
+
       guard ticks >= oldTicks else { return .noValue(.countersWentBackwards) }
 
       let elapsed = Double(ticks - oldTicks)

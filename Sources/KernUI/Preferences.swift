@@ -1,0 +1,170 @@
+import KernCore
+
+/// Is a metric as Settings turns it on and off and sets its interval. Memory covers used memory and memory pressure.
+public enum Monitor: String, CaseIterable, Sendable {
+  case cpu
+  case gpu
+  case temperature
+  case memory
+
+  init(_ metric: Metric) {
+    switch metric {
+    case .cpu: self = .cpu
+    case .gpu: self = .gpu
+    case .temperature: self = .temperature
+    case .memory, .memoryPressure: self = .memory
+    }
+  }
+
+  var metrics: [Metric] {
+    switch self {
+    case .cpu: [.cpu]
+    case .gpu: [.gpu]
+    case .temperature: [.temperature]
+    case .memory: [.memory, .memoryPressure]
+    }
+  }
+
+  /// Returns the intervals Settings accepts, in whole seconds. With every metric at its minimum, Kern stays within the
+  /// background CPU and wakeup budgets of PRD §5.1, as PRD §4.6 requires. CPU and GPU every second did not, because
+  /// each of their samples redraws the menu bar on every display.
+  public var intervals: ClosedRange<Int> {
+    switch self {
+    case .cpu, .gpu: 2...60
+    case .temperature: 5...300
+    case .memory: 2...300
+    }
+  }
+
+  var defaultInterval: Int {
+    Int(metrics[0].defaultInterval.components.seconds)
+  }
+}
+
+public struct MonitorSettings: Equatable, Sendable {
+  public var isEnabled: Bool
+  /// Holds the sampling interval in whole seconds.
+  public var interval: Int
+}
+
+public enum TemperatureUnit: String, CaseIterable, Sendable {
+  case celsius
+  case fahrenheit
+
+  func value(ofCelsius celsius: Double) -> Double {
+    switch self {
+    case .celsius: celsius
+    case .fahrenheit: celsius * 9 / 5 + 32
+    }
+  }
+
+  var spokenName: String {
+    switch self {
+    case .celsius: "degrees Celsius"
+    case .fahrenheit: "degrees Fahrenheit"
+    }
+  }
+}
+
+/// Holds every setting of the Settings window except launch at login, which macOS keeps.
+public struct Preferences: Equatable, Sendable {
+  public var cpu: MonitorSettings
+  public var gpu: MonitorSettings
+  public var temperature: MonitorSettings
+  public var memory: MonitorSettings
+  /// Holds the number of samples in each history, which is how many the menu-bar graph and the popover's charts show.
+  public var graphSamples: Int
+  public var temperatureUnit: TemperatureUnit
+  public var lowPowerModeBehavior: LowPowerModeBehavior
+  public var menuBarLayout: MenuBarLayout
+
+  /// Holds the defaults of PRD §4.6, except that memory is sampled in the background too, because the menu bar's RAM
+  /// gauge shows memory pressure. Used memory is still sampled only while the popover is open.
+  public static let standard = Preferences(
+    cpu: MonitorSettings(isEnabled: true, interval: Monitor.cpu.defaultInterval),
+    gpu: MonitorSettings(isEnabled: true, interval: Monitor.gpu.defaultInterval),
+    temperature: MonitorSettings(isEnabled: true, interval: Monitor.temperature.defaultInterval),
+    memory: MonitorSettings(isEnabled: true, interval: Monitor.memory.defaultInterval),
+    graphSamples: MetricsStore.defaultHistoryCapacity,
+    temperatureUnit: .celsius,
+    lowPowerModeBehavior: .standard,
+    menuBarLayout: .standard
+  )
+
+  public static let graphSampleCounts = 20...240
+
+  public subscript(monitor: Monitor) -> MonitorSettings {
+    get {
+      switch monitor {
+      case .cpu: cpu
+      case .gpu: gpu
+      case .temperature: temperature
+      case .memory: memory
+      }
+    }
+    set {
+      switch monitor {
+      case .cpu: cpu = newValue
+      case .gpu: gpu = newValue
+      case .temperature: temperature = newValue
+      case .memory: memory = newValue
+      }
+    }
+  }
+
+  var shownMenuBarLayout: MenuBarLayout {
+    var layout = menuBarLayout
+
+    for widget in Widget.allCases where !self[Monitor(widget.metric)].isEnabled {
+      layout.setShown(false, widget)
+    }
+
+    return layout
+  }
+
+  func normalized() -> Preferences {
+    var preferences = self
+
+    for monitor in Monitor.allCases {
+      preferences[monitor].interval = monitor.intervals.clamp(preferences[monitor].interval)
+    }
+
+    preferences.graphSamples = Self.graphSampleCounts.clamp(graphSamples)
+
+    return preferences
+  }
+}
+
+extension ClosedRange<Int> {
+  func clamp(_ value: Int) -> Int {
+    Swift.min(Swift.max(value, lowerBound), upperBound)
+  }
+
+  func nearest(to value: Double) -> Int? {
+    guard !value.isNaN else { return nil }
+
+    return Int(Swift.min(Swift.max(value.rounded(), Double(lowerBound)), Double(upperBound)))
+  }
+}
+
+extension MetricsCoordinator {
+  func apply(_ preferences: Preferences) {
+    for monitor in Monitor.allCases {
+      let settings = preferences[monitor]
+
+      for metric in monitor.metrics {
+        setInterval(.seconds(settings.interval), for: metric)
+
+        if settings.isEnabled {
+          enable(metric)
+        } else {
+          disable(metric)
+        }
+      }
+    }
+
+    setHistoryCapacity(preferences.graphSamples)
+
+    lowPowerModeBehavior = preferences.lowPowerModeBehavior
+  }
+}

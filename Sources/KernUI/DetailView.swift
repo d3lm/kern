@@ -15,10 +15,20 @@ final class DetailView: NSView {
   /// Asks the owner to show a metric again, which each section does at its `onStaleDeadline`.
   var onStaleDeadline: (Metric) -> Void = { _ in }
 
+  var onSettings: () -> Void = {}
+
+  /// Applies from the next readings shown.
+  var temperatureUnit: TemperatureUnit
+
   private let style: DetailStyle
   private var size = NSSize.zero
 
-  init(sources: [Metric: MetricSource], chip: String? = nil, style: DetailStyle = DetailStyle()) {
+  init(
+    sources: [Metric: MetricSource],
+    chip: String? = nil,
+    temperatureUnit: TemperatureUnit,
+    style: DetailStyle = DetailStyle()
+  ) {
     sections = Metric.detailOrder.compactMap { metric in
       sources[metric].map { DetailSection(metric: metric, source: $0, style: style) }
     }
@@ -36,17 +46,23 @@ final class DetailView: NSView {
 
     self.cards = cards
     self.header = DetailHeader(chip: chip, style: style)
+    self.temperatureUnit = temperatureUnit
     self.style = style
 
-    settingsButton = FooterButton(title: "Settings", symbol: "gearshape", style: style)
-    settingsButton.isEnabled = false
+    settingsButton = FooterButton(title: "Settings", symbol: "gearshape", shortcut: "⌘,", style: style)
+    settingsButton.keyEquivalent = ","
+    settingsButton.keyEquivalentModifierMask = .command
 
     quitButton = FooterButton(title: "Quit", style: style)
     quitButton.target = NSApp
     quitButton.action = #selector(NSApplication.terminate(_:))
+
     quitButton.setAccessibilityLabel("Quit Kern")
 
     super.init(frame: .zero)
+
+    settingsButton.target = self
+    settingsButton.action = #selector(openSettings)
 
     for view in [header] + cards + [settingsButton, quitButton] {
       addSubview(view)
@@ -71,20 +87,27 @@ final class DetailView: NSView {
 
   func show(_ readings: MetricReadings, for metric: Metric) {
     for section in sections where section.metric == metric {
-      section.show(readings)
+      section.show(readings, temperatureUnit: temperatureUnit)
     }
+  }
+
+  @objc private func openSettings() {
+    onSettings()
   }
 
   private func arrange() {
     let left = style.panelPadding
+
     var top = style.headerTop
 
     header.setFrameOrigin(NSPoint(x: left + style.cardPadding, y: top))
+
     top = header.frame.maxY + style.headerBottom
 
     for card in cards {
       card.arrange()
       card.setFrameOrigin(NSPoint(x: left, y: top))
+
       top = card.frame.maxY + style.cardSpacing
     }
 
@@ -97,6 +120,7 @@ final class DetailView: NSView {
 
     if size != self.size {
       self.size = size
+
       fittingSizeChanged()
     }
   }
@@ -128,8 +152,8 @@ final class DetailSection {
   let lines: [DetailLine]
   var changed: () -> Void = {}
 
-  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale. The store
-  /// counts staleness with the interval in force then, which the readings shown earlier cannot know.
+  /// Asks the owner to show the metric's readings again at the moment the value shown would go stale. The view keeps
+  /// no readings to check itself, because a copy of a history would make the store copy it on its next sample.
   var onStaleDeadline: () -> Void = {}
 
   private let source: MetricSource
@@ -171,17 +195,17 @@ final class DetailSection {
     lines = parts.compactMap { $0 }
   }
 
-  func show(_ readings: MetricReadings) {
+  func show(_ readings: MetricReadings, temperatureUnit: TemperatureUnit) {
     let now = ContinuousClock.now
-    let row = metric.detailRow(for: readings, source: source, at: now)
+    let row = metric.detailRow(for: readings, source: source, at: now, temperatureUnit: temperatureUnit)
 
     value?.show(row, at: now)
-    history?.show(metric.historyChart(for: readings, at: now))
+    history?.show(metric.historyChart(for: readings, at: now, temperatureUnit: temperatureUnit))
     cores?.show(metric.coreChart(for: readings, at: now))
     bar?.show(usedMemoryRow(for: row, readings: readings, at: now))
 
     sensors?.show(
-      (readings.lastSuccessful?.value?.temperatures ?? []).map(SensorRange.init),
+      (readings.lastSuccessful?.value?.temperatures ?? []).map { SensorRange($0, unit: temperatureUnit) },
       isStale: row.isStale,
       help: source.description
     )
@@ -220,6 +244,7 @@ final class DetailHeader: NSView {
     super.init(frame: .zero)
 
     title.font = style.titleFont
+
     title.sizeToFit()
     title.setAlignmentOrigin(.zero)
     addSubview(title)
@@ -227,7 +252,9 @@ final class DetailHeader: NSView {
     if let field = self.chip {
       field.font = style.chipFont
       field.textColor = .secondaryLabelColor
+
       field.sizeToFit()
+
       field.setAlignmentOrigin(
         NSPoint(
           x: title.alignmentSize.width + style.headerSpacing,
@@ -272,6 +299,7 @@ final class DetailCard: NSView {
       icon.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: style.headingFont.pointSize, weight: .regular)
       icon.contentTintColor = .secondaryLabelColor
       icon.toolTip = info
+
       icon.setAccessibilityElement(false)
       icon.sizeToFit()
 
@@ -284,6 +312,7 @@ final class DetailCard: NSView {
     title.sizeToFit()
 
     wantsLayer = true
+
     addSubview(title)
 
     if let infoIcon {
@@ -318,6 +347,7 @@ final class DetailCard: NSView {
   func arrange() {
     let padding = style.cardPadding
     let headingHeight = title.alignmentSize.height
+
     var top = padding + headingHeight
 
     title.setAlignmentOrigin(NSPoint(x: padding, y: padding))
@@ -345,6 +375,7 @@ final class DetailCard: NSView {
         }
 
       line.view.setFrameOrigin(NSPoint(x: padding, y: top + spacing))
+
       top = line.view.frame.maxY
       previous = line.kind
     }
@@ -393,6 +424,7 @@ final class DetailValueView: NSView {
     if let caption = self.caption {
       caption.font = style.captionFont
       caption.textColor = .secondaryLabelColor
+
       caption.sizeToFit()
     }
 
@@ -422,13 +454,13 @@ final class DetailValueView: NSView {
     self.content = content
 
     let statusText = content.statusText(at: now, date: .now, timeStyle: Self.timeStyle)
-    let isCelsius = content.value?.unit == .celsius
+    let isDegrees = if case .degrees = content.value?.unit { true } else { false }
 
     number.stringValue = content.numberText
     number.textColor = content.isStale ? .tertiaryLabelColor : .labelColor
     unit.stringValue = content.unitText
-    unit.font = isCelsius ? style.bigValueFont : style.bigUnitFont
-    unit.textColor = content.isStale ? .tertiaryLabelColor : isCelsius ? .labelColor : .secondaryLabelColor
+    unit.font = isDegrees ? style.bigValueFont : style.bigUnitFont
+    unit.textColor = content.isStale ? .tertiaryLabelColor : isDegrees ? .labelColor : .secondaryLabelColor
     status.stringValue = statusText ?? ""
     status.isHidden = statusText == nil
     toolTip = content.explanation
@@ -545,9 +577,11 @@ final class BarRowView: NSView {
         attributes: [.font: style.labelFont, .foregroundColor: NSColor.secondaryLabelColor])
 
     bar.show(content.fill, color: content.color, isStale: content.isStale)
+
     status.stringValue = content.status ?? ""
     status.isHidden = content.status == nil
     toolTip = content.help
+
     setAccessibilityValue(content.spokenValue)
     setAccessibilityHelp(content.help)
     arrange()
@@ -564,6 +598,7 @@ final class BarRowView: NSView {
         y: label.firstBaselineOffsetFromTop - value.firstBaselineOffsetFromTop))
 
     let lineHeight = label.alignmentSize.height
+
     var top = lineHeight
 
     bar.frame = NSRect(
@@ -630,10 +665,12 @@ final class SensorListView: NSView {
         ))
 
       row.setFrameOrigin(NSPoint(x: 0, y: top))
+
       top = row.frame.maxY + style.rowSpacing
     }
 
     isHidden = rows.isEmpty
+
     setFrameSize(NSSize(width: style.contentWidth, height: max(0, top - style.rowSpacing)))
   }
 }
@@ -666,7 +703,8 @@ final class FooterButton: NSButton {
   private(set) var isHovered = false
   private(set) var isPressed = false
 
-  init(title: String, symbol: String? = nil, style: DetailStyle) {
+  /// Shows `shortcut` after the title in a fainter color. Setting `keyEquivalent` is what makes the button take it.
+  init(title: String, symbol: String? = nil, shortcut: String? = nil, style: DetailStyle) {
     self.style = style
 
     super.init(frame: .zero)
@@ -675,10 +713,16 @@ final class FooterButton: NSButton {
     wantsLayer = true
     font = style.buttonFont
 
-    attributedTitle = NSAttributedString(
-      string: title, attributes: [.font: style.buttonFont, .foregroundColor: NSColor.labelColor])
+    attributedTitle =
+      NSAttributedString(string: title, attributes: [.font: style.buttonFont, .foregroundColor: NSColor.labelColor])
+      + NSAttributedString(
+        string: shortcut.map { "  \($0)" } ?? "",
+        attributes: [.font: style.buttonFont, .foregroundColor: NSColor.secondaryLabelColor])
 
-    // the panel is never the key window, so the area must track the pointer in an inactive window too
+    setAccessibilityLabel(title)
+
+    // the panel is open while another app stays frontmost, so the area must track the pointer whether or not Kern is
+    // the active app
     addTrackingArea(
       NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
 
@@ -701,26 +745,32 @@ final class FooterButton: NSButton {
   override var isEnabled: Bool {
     didSet {
       alphaValue = isEnabled ? 1 : 0.45
+
       updateColors()
     }
   }
 
   override func mouseEntered(with event: NSEvent) {
     isHovered = true
+
     updateColors()
   }
 
   override func mouseExited(with event: NSEvent) {
     isHovered = false
+
     updateColors()
   }
 
   /// Tracks the click until the mouse-up, so it returns only once the press is over.
   override func mouseDown(with event: NSEvent) {
     isPressed = isEnabled
+
     updateColors()
     super.mouseDown(with: event)
+
     isPressed = false
+
     updateColors()
   }
 
@@ -775,18 +825,5 @@ extension NSTextField {
     setAlignmentOrigin(NSPoint(x: 0, y: top + spacing))
 
     return spacing + alignmentSize.height
-  }
-}
-
-extension NSView {
-  fileprivate var alignmentSize: NSSize {
-    let insets = alignmentRectInsets
-
-    return NSSize(width: frame.width - insets.left - insets.right, height: frame.height - insets.top - insets.bottom)
-  }
-
-  /// Assumes a flipped superview.
-  fileprivate func setAlignmentOrigin(_ origin: NSPoint) {
-    setFrameOrigin(NSPoint(x: origin.x - alignmentRectInsets.left, y: origin.y - alignmentRectInsets.top))
   }
 }

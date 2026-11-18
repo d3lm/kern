@@ -19,16 +19,42 @@ final class DetailPopover {
   private let sources: [Metric: MetricSource]
   private let chip: String?
   private let style = DetailStyle()
+  private let openSettings: @MainActor () -> Void
   private var open: Open?
 
-  init(coordinator: MetricsCoordinator<ContinuousClock>, chip: ChipIdentity) {
+  var temperatureUnit: TemperatureUnit {
+    didSet {
+      guard temperatureUnit != oldValue, let open else { return }
+
+      open.content.temperatureUnit = temperatureUnit
+
+      showAll(in: open.content)
+    }
+  }
+
+  init(
+    coordinator: MetricsCoordinator<ContinuousClock>,
+    chip: ChipIdentity,
+    temperatureUnit: TemperatureUnit,
+    openSettings: @escaping @MainActor () -> Void = {}
+  ) {
     self.coordinator = coordinator
     self.sources = Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, coordinator.source(of: $0)) })
     self.chip = chip.name
+    self.temperatureUnit = temperatureUnit
+    self.openSettings = openSettings
   }
 
   var isShown: Bool { open != nil }
   var content: DetailView? { open?.content }
+
+  private func showAll(in content: DetailView) {
+    for metric in Metric.allCases {
+      if let readings = coordinator.store[metric] {
+        content.show(readings, for: metric)
+      }
+    }
+  }
 
   func toggle(from button: NSButton) {
     if open == nil {
@@ -44,8 +70,15 @@ final class DetailPopover {
     let interval = signposter.beginInterval("open popover")
     let start = ContinuousClock.now
     let store = coordinator.store
-    let content = DetailView(sources: sources, chip: chip, style: style)
+    let content = DetailView(sources: sources, chip: chip, temperatureUnit: temperatureUnit, style: style)
     let panel = DetailPanel(content: content, style: style)
+
+    panel.onCancel = { [weak self] in self?.close() }
+
+    content.onSettings = { [weak self] in
+      self?.close()
+      self?.openSettings()
+    }
 
     coordinator.areDetailsVisible = true
 
@@ -55,9 +88,7 @@ final class DetailPopover {
       }
     }
 
-    for metric in Metric.allCases {
-      show(metric)
-    }
+    showAll(in: content)
 
     content.fittingSizeChanged = { [weak self] in self?.place(below: button) }
     content.onStaleDeadline = show
@@ -74,6 +105,7 @@ final class DetailPopover {
 
     place(below: button)
     panel.orderFrontRegardless()
+    panel.makeKey()
     button.highlight(true)
 
     // without the flush, the signpost interval ends before the panel is laid out and drawn
@@ -93,9 +125,13 @@ final class DetailPopover {
     }
 
     coordinator.store.removeObserver(open.observer)
+
     coordinator.areDetailsVisible = false
+
     open.panel.orderOut(nil)
+
     open.panel.contentView = nil
+
     open.button.highlight(false)
 
     // malloc keeps freed pages, which count as Kern's memory, until memory pressure, so every close returns them
@@ -108,6 +144,7 @@ final class DetailPopover {
     guard let open, let itemFrame = button.window?.frame else { return }
 
     let size = open.content.fittingSize
+
     var origin = NSPoint(x: itemFrame.midX - size.width / 2, y: itemFrame.minY - style.panelGap - size.height)
 
     if let screen = button.window?.screen?.visibleFrame {
@@ -142,7 +179,24 @@ final class DetailPopover {
   }
 }
 
+/// Becomes key while it is open so that its Settings button takes ⌘, and Escape closes it. Being a non-activating
+/// panel, it does so without making Kern the active app.
 private final class DetailPanel: NSPanel {
+  var onCancel: () -> Void = {}
+
+  override var canBecomeKey: Bool { true }
+
+  override func cancelOperation(_ sender: Any?) {
+    onCancel()
+  }
+
+  /// Ignores typing the panel has no use for, as a menu does, instead of beeping for every key.
+  override func noResponder(for eventSelector: Selector) {
+    if eventSelector != #selector(NSResponder.keyDown(with:)) {
+      super.noResponder(for: eventSelector)
+    }
+  }
+
   init(content: NSView, style: DetailStyle) {
     super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
 
@@ -169,6 +223,7 @@ private final class DetailPanel: NSPanel {
     for view in [content, outline] {
       view.frame = background.bounds
       view.autoresizingMask = [.width, .height]
+
       background.addSubview(view)
     }
   }

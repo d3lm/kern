@@ -13,10 +13,11 @@ struct AppearanceTests {
     acquiredAt: ContinuousClock.Instant = .now,
     gpu: [MetricSample]? = nil
   ) -> MenuBarView {
-    let view = MenuBarView(layout: .standard)
+    let view = MenuBarView(layout: .standard, temperatureUnit: .celsius)
     let cpu = (0..<60).map { sample(value(Double($0)), at: acquiredAt) }
 
     view.appearance = NSAppearance(named: appearance)
+
     view.show(readings(.temperature, after: [sample(value(47, .celsius), at: acquiredAt)]), for: .temperature)
     view.show(readings(.cpu, after: cpu), for: .cpu)
     view.show(readings(.gpu, after: gpu ?? [sample(value(88), at: acquiredAt)]), for: .gpu)
@@ -35,6 +36,7 @@ struct AppearanceTests {
 
   func valueFrame(of widget: Widget, in view: MenuBarView) -> NSRect {
     var frame = view[widget].frame
+
     let offset = style.valueOffset(label: widget.label)
 
     frame.origin.x += offset
@@ -89,9 +91,10 @@ struct AppearanceTests {
 
   @Test(arguments: [NSAppearance.Name.aqua, .vibrantLight, .darkAqua, .vibrantDark])
   func chartWithoutValuesShowsOnlyAFaintOutline(appearance: NSAppearance.Name) {
-    let view = MenuBarView(layout: MenuBarLayout(widgets: [.cpu], showsLabels: false)!)
+    let view = MenuBarView(layout: MenuBarLayout(widgets: [.cpu], showsLabels: false)!, temperatureUnit: .celsius)
 
     view.appearance = NSAppearance(named: appearance)
+
     view.show(readings(.cpu, after: [sample(failed)]), for: .cpu)
 
     let image = rendered(view)

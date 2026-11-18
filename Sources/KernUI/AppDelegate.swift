@@ -3,26 +3,74 @@ import KernCore
 
 @MainActor
 public final class AppDelegate: NSObject, NSApplicationDelegate {
+  public let preferences: PreferencesStore
+  private lazy var loginItem = LoginItemManager()
   private var coordinator: MetricsCoordinator<ContinuousClock>?
   private var statusItem: StatusItemController?
+  private var details: DetailPopover?
   private var powerState: PowerStateObserver?
+  private var settings: SettingsWindowController?
+
+  public override init() {
+    preferences = PreferencesStore()
+
+    super.init()
+  }
 
   public func applicationDidFinishLaunching(_ notification: Notification) {
     let (chip, providers) = Self.providers()
     let coordinator = MetricsCoordinator(providers: providers)
+    let current = preferences.preferences
+    let openSettings: @MainActor () -> Void = { [weak self] in self?.showSettings() }
 
-    coordinator.lowPowerModeBehavior = .configured(in: .standard)
+    coordinator.apply(current)
+
     powerState = PowerStateObserver { coordinator.powerState = $0 }
+
+    let details = DetailPopover(
+      coordinator: coordinator, chip: chip, temperatureUnit: current.temperatureUnit, openSettings: openSettings)
 
     statusItem = StatusItemController(
       store: coordinator.store,
-      layout: .configured(in: .standard),
-      details: DetailPopover(coordinator: coordinator, chip: chip)
+      layout: current.shownMenuBarLayout,
+      temperatureUnit: current.temperatureUnit,
+      details: details,
+      openSettings: openSettings
     )
+
+    preferences.onChange = { [weak self] in self?.apply($0) }
 
     coordinator.start()
 
+    self.details = details
     self.coordinator = coordinator
+  }
+
+  public func applicationWillTerminate(_ notification: Notification) {
+    settings?.window.close()
+  }
+
+  func showSettings() {
+    guard let coordinator else { return }
+
+    let settings =
+      settings
+      ?? SettingsWindowController(preferences: preferences, loginItem: loginItem, store: coordinator.store) {
+        [weak self] in self?.settings = nil
+      }
+
+    self.settings = settings
+
+    settings.show()
+  }
+
+  private func apply(_ preferences: Preferences) {
+    coordinator?.apply(preferences)
+    statusItem?.show(layout: preferences.shownMenuBarLayout, temperatureUnit: preferences.temperatureUnit)
+
+    details?.temperatureUnit = preferences.temperatureUnit
+
+    settings?.show(preferences)
   }
 
   private static func providers() -> (chip: ChipIdentity, providers: [Metric: MetricProvider]) {

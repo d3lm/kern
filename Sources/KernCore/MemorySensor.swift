@@ -64,6 +64,7 @@ public struct MemorySensor: MetricSensor {
 
   public mutating func close() {
     counts.close()
+
     installed = nil
   }
 }

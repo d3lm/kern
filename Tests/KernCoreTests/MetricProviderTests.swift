@@ -188,6 +188,7 @@ struct MetricProviderTests {
 
   @MainActor @Test func sensorWorkRunsOffTheMainThread() async {
     let provider = MetricProvider(sensor: ThreadRecordingSensor(log: log))
+
     #expect(pthread_main_np() != 0)
 
     await provider.start()

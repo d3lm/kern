@@ -32,6 +32,7 @@ extension MetricsCoordinatorTests {
     #expect(
       logs[.cpu]!.all
         == ["open", "read 0", "read 2", "read 4", "close", "open", "read 64", "read 66", "read 68", "read 70"])
+
     #expect(logs[.gpu]!.all == logs[.cpu]!.all)
     #expect(logs[.temperature]!.all == ["open", "read 0", "close", "open", "read 64"])
     #expect(logs[.memoryPressure]!.all == ["open", "read 0", "close", "open", "read 64", "read 69"])
@@ -156,7 +157,9 @@ extension MetricsCoordinatorTests {
 
     coordinator.disable(.gpu)
     coordinator.setInterval(.seconds(1), for: .cpu)
+
     coordinator.areDetailsVisible = true
+
     coordinator.disable(.temperature)
     coordinator.enable(.temperature)
     coordinator.stop()
@@ -189,6 +192,7 @@ extension MetricsCoordinatorTests {
 
     coordinator.powerState.isAsleep = true
     coordinator.powerState.isAsleep = false
+
     gate.signal()
 
     await waitUntil { clock.sleeperCount == 1 }
@@ -225,6 +229,7 @@ extension MetricsCoordinatorTests {
     let coordinator = coordinator()
 
     coordinator.powerState.isAsleep = true
+
     coordinator.start()
 
     await run(until: 5, schedules: 0)

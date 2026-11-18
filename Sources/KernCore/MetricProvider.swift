@@ -31,6 +31,7 @@ public actor MetricProvider {
 
     do {
       try sensor.open()
+
       isOpen = true
       availability = .available
     } catch {
@@ -41,6 +42,7 @@ public actor MetricProvider {
   public func stop() {
     if isOpen {
       sensor.close()
+
       isOpen = false
     }
 

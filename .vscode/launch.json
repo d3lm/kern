@@ -59,6 +59,26 @@
       "target": "kern-power-bench",
       "configuration": "release",
       "preLaunchTask": "swift: Build Release kern-power-bench"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:kern}",
+      "name": "Debug kern-settings-bench",
+      "target": "kern-settings-bench",
+      "configuration": "debug",
+      "preLaunchTask": "swift: Build Debug kern-settings-bench"
+    },
+    {
+      "type": "swift",
+      "request": "launch",
+      "args": [],
+      "cwd": "${workspaceFolder:kern}",
+      "name": "Release kern-settings-bench",
+      "target": "kern-settings-bench",
+      "configuration": "release",
+      "preLaunchTask": "swift: Build Release kern-settings-bench"
     }
   ]
 }

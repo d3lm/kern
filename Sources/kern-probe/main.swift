@@ -70,6 +70,7 @@ default: break
 
 func printReadings(of sensor: some MetricSensor, every interval: Duration) async {
   let provider = MetricProvider(sensor: sensor)
+
   await provider.start()
 
   await repeatEvery(interval) {

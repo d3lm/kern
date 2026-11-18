@@ -12,16 +12,29 @@ final class StatusItemController: NSObject {
 
   private let store: MetricsStore
   let statusItem: NSStatusItem
-  let menuBarView: MenuBarView
+  private(set) var menuBarView: MenuBarView
+  private var layout: MenuBarLayout
+  private var temperatureUnit: TemperatureUnit
   private let details: DetailPopover
-  private let menu = NSMenu()
+  private let openSettings: @MainActor () -> Void
+  private lazy var menu = Self.menu(settingsTarget: self, settingsAction: #selector(chooseSettings))
   private var mouseDowns: MouseDownMonitor?
   private var batch: SampleBatch?
 
-  init(store: MetricsStore, layout: MenuBarLayout, details: DetailPopover) {
+  /// Shows the widgets of `layout`, which must hide the widgets of metrics that are turned off.
+  init(
+    store: MetricsStore,
+    layout: MenuBarLayout,
+    temperatureUnit: TemperatureUnit,
+    details: DetailPopover,
+    openSettings: @escaping @MainActor () -> Void = {}
+  ) {
     self.store = store
+    self.layout = layout
+    self.temperatureUnit = temperatureUnit
     self.details = details
-    self.menuBarView = MenuBarView(layout: layout)
+    self.openSettings = openSettings
+    self.menuBarView = MenuBarView(layout: layout, temperatureUnit: temperatureUnit)
     self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
 
     super.init()
@@ -29,40 +42,13 @@ final class StatusItemController: NSObject {
     guard let button = statusItem.button else { preconditionFailure("a status item made by the system has a button") }
 
     button.setAccessibilityLabel("Kern")
-    button.addSubview(menuBarView)
 
     // the action still handles presses that are not mouse clicks, such as VoiceOver's
     mouseDowns = MouseDownMonitor(on: button) { [weak self] event in self?.click(button, with: event) }
     button.target = self
     button.action = #selector(press(_:))
 
-    let quit = NSMenuItem(title: "Quit Kern", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
-
-    quit.target = NSApp
-    menu.addItem(quit)
-
-    // a fixed-length item jumps by its inset when Command-dragged, and a changed button image makes the menu bar
-    // redraw its shadow for every display, so the item is variable-length and sized by these constraints
-    menuBarView.translatesAutoresizingMaskIntoConstraints = false
-    menuBarView.setContentHuggingPriority(.required, for: .horizontal)
-    menuBarView.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-    NSLayoutConstraint.activate([
-      menuBarView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: Self.padding),
-      menuBarView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -Self.padding),
-      menuBarView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
-    ])
-
-    let widgets = layout.widgets.map(\.rawValue).joined(separator: ", ")
-
-    logger.debug(
-      "showing \(widgets, privacy: .public), \(layout.showsLabels ? "with" : "without", privacy: .public) labels")
-
-    for metric in Metric.allCases {
-      show(metric)
-    }
-
-    menuBarView.onStaleDeadline = { [weak self] metric in self?.show(metric) }
+    install(menuBarView, in: button)
 
     let batch = SampleBatch(window: Self.batchWindow) { [weak self] metrics in
       for metric in metrics {
@@ -72,10 +58,54 @@ final class StatusItemController: NSObject {
 
     self.batch = batch
 
-    _ = store.observe { metric in
-      logger.debug("\(metric.rawValue, privacy: .public) sample arrived")
+    _ = store.observe { metric in batch.add(metric) }
+  }
 
-      batch.add(metric)
+  func show(layout: MenuBarLayout, temperatureUnit: TemperatureUnit) {
+    guard layout != self.layout || temperatureUnit != self.temperatureUnit, let button = statusItem.button else {
+      return
+    }
+
+    self.layout = layout
+    self.temperatureUnit = temperatureUnit
+
+    menuBarView.removeFromSuperview()
+
+    menuBarView = MenuBarView(layout: layout, temperatureUnit: temperatureUnit)
+
+    install(menuBarView, in: button)
+  }
+
+  private func install(_ view: MenuBarView, in button: NSStatusBarButton) {
+    button.addSubview(view)
+
+    // a fixed-length item jumps by its inset when Command-dragged, and a changed button image makes the menu bar
+    // redraw its shadow for every display, so the item is variable-length and sized by these constraints
+    view.translatesAutoresizingMaskIntoConstraints = false
+
+    view.setContentHuggingPriority(.required, for: .horizontal)
+    view.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+    NSLayoutConstraint.activate([
+      view.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: Self.padding),
+      view.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -Self.padding),
+      view.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+    ])
+
+    let widgets = layout.widgets.map(\.rawValue).joined(separator: ", ")
+    let labeled = layout.widgets.filter { layout.label(of: $0) != nil }.map(\.rawValue).joined(separator: ", ")
+    let labels = labeled.isEmpty ? "without labels" : "with labels on \(labeled)"
+
+    logger.debug("showing \(widgets, privacy: .public), \(labels, privacy: .public)")
+
+    view.onStaleDeadline = { [weak self] metric in self?.show(metric) }
+
+    showAll()
+  }
+
+  private func showAll() {
+    for metric in Metric.allCases {
+      show(metric)
     }
   }
 
@@ -93,17 +123,39 @@ final class StatusItemController: NSObject {
     }
   }
 
+  @objc private func chooseSettings() {
+    openSettings()
+  }
+
   /// An item with a menu shows it on every click instead of sending its action, so the menu is attached only while
   /// it is shown.
   private func click(_ button: NSStatusBarButton, with event: NSEvent) {
     if Self.isMenuClick(event) {
       details.close()
+
       statusItem.menu = menu
+
       button.performClick(nil)
+
       statusItem.menu = nil
     } else {
       details.toggle(from: button)
     }
+  }
+
+  static func menu(settingsTarget: AnyObject, settingsAction: Selector) -> NSMenu {
+    let menu = NSMenu()
+    let settings = NSMenuItem(title: "Settings…", action: settingsAction, keyEquivalent: ",")
+    let quit = NSMenuItem(title: "Quit Kern", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+    settings.target = settingsTarget
+    quit.target = NSApp
+
+    menu.addItem(settings)
+    menu.addItem(.separator())
+    menu.addItem(quit)
+
+    return menu
   }
 
   nonisolated static func isMenuClick(_ event: NSEvent) -> Bool {

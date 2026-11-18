@@ -10,7 +10,7 @@ extension AppEvents {
     let calls: [Metric: SensorCalls] = Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, SensorCalls()) })
     let coordinator: MetricsCoordinator<ContinuousClock>
     let details: DetailPopover
-    let menuBarView = MenuBarView(layout: .standard)
+    let menuBarView = MenuBarView(layout: .standard, temperatureUnit: .celsius)
     let button = NSButton(title: "", target: nil, action: nil)
 
     /// Off every screen, so the popover never appears in front of the person running the tests.
@@ -32,12 +32,15 @@ extension AppEvents {
         )
       )
 
-      details = DetailPopover(coordinator: coordinator, chip: .recognized(Chip(family: .m1, variant: .max)))
+      details = DetailPopover(
+        coordinator: coordinator, chip: .recognized(Chip(family: .m1, variant: .max)), temperatureUnit: .celsius)
 
       button.frame = NSRect(x: 0, y: 0, width: 200, height: 22)
+
       button.addSubview(menuBarView)
 
       window.contentView = button
+
       window.orderFrontRegardless()
 
       coordinator.start()
@@ -156,6 +159,7 @@ extension AppEvents {
       weak var popoverWindow: NSWindow?
 
       details.toggle(from: button)
+
       content = details.content
       popoverWindow = content?.window
 
@@ -241,6 +245,84 @@ extension AppEvents {
       )
 
       #expect(StatusItemController.isMenuClick(event) == isMenu)
+    }
+
+    func key(_ characters: String, _ modifiers: NSEvent.ModifierFlags, in window: NSWindow) throws -> NSEvent {
+      try #require(
+        NSEvent.keyEvent(
+          with: .keyDown,
+          location: .zero,
+          modifierFlags: modifiers,
+          timestamp: 0,
+          windowNumber: window.windowNumber,
+          context: nil,
+          characters: characters,
+          charactersIgnoringModifiers: characters,
+          isARepeat: false,
+          keyCode: characters == "\u{1b}" ? 53 : 43
+        ))
+    }
+
+    @Test func openPanelTakesTheKeyboardSoCommandCommaOpensSettingsAndClosesIt() throws {
+      var opened = 0
+
+      let details = DetailPopover(
+        coordinator: coordinator, chip: .unrecognized(brandString: nil), temperatureUnit: .celsius
+      ) { opened += 1 }
+
+      details.toggle(from: button)
+
+      let panel = try #require(details.content?.window)
+
+      #expect(panel.canBecomeKey)
+      #expect(panel.performKeyEquivalent(with: try key(",", .command, in: panel)))
+      #expect(opened == 1)
+      #expect(!details.isShown)
+    }
+
+    @Test func escapeClosesThePanel() throws {
+      details.toggle(from: button)
+
+      let panel = try #require(details.content?.window)
+
+      #expect(!panel.performKeyEquivalent(with: try key("\u{1b}", [], in: panel)))
+
+      panel.keyDown(with: try key("\u{1b}", [], in: panel))
+
+      #expect(!details.isShown)
+    }
+
+    @Test func metricTurnedOffWhileThePanelIsOpenShowsAtOnce() async throws {
+      details.toggle(from: button)
+
+      await waitUntil { details.content?[.gpu].value?.valueText == "12%" }
+
+      coordinator.disable(.gpu)
+
+      #expect(details.content?[.gpu].value?.statusText == "Turned off in Settings")
+    }
+
+    @Test func newHistoryCapacityShowsInTheOpenPanelAtOnce() async throws {
+      details.toggle(from: button)
+
+      let interval = try #require(coordinator.store[.gpu]?.interval)
+
+      #expect(details.content?[.gpu].history?.content?.span == interval * 60)
+
+      coordinator.setHistoryCapacity(20)
+
+      #expect(details.content?[.gpu].history?.content?.span == interval * 20)
+    }
+
+    @Test func newTemperatureUnitShowsInTheOpenPanelAtOnce() async throws {
+      coordinator.store.record(sample(value(50, .celsius), at: .now), for: .temperature)
+      details.toggle(from: button)
+
+      #expect(details.content?[.temperature].value?.valueText == "50°")
+
+      details.temperatureUnit = .fahrenheit
+
+      #expect(details.content?[.temperature].value?.valueText == "122°")
     }
 
     @Test func openingAndClosingDrawsNoMenuBarWidget() {

@@ -27,5 +27,15 @@ public struct SampleHistory: RandomAccessCollection, Sendable {
     }
   }
 
+  func resized(to capacity: Int) -> SampleHistory {
+    var history = SampleHistory(capacity: capacity)
+
+    for sample in suffix(capacity) {
+      history.append(sample)
+    }
+
+    return history
+  }
+
   var storageCapacity: Int { storage.capacity }
 }

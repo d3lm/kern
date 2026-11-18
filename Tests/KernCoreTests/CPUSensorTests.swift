@@ -50,6 +50,7 @@ struct CPUSensorTests {
 
   @Test func eachCoreHasItsOwnShareGroupedByKindInLogicalCPUOrder() async {
     let kinds: [CoreKind] = [.efficiency, .efficiency, .performance, .performance, .performance]
+
     let later = [
       cpu(user: 90, idle: 10), cpu(user: 80, idle: 20), cpu(user: 10, idle: 90), cpu(idle: 100),
       cpu(user: 60, idle: 40),
@@ -277,6 +278,7 @@ struct CPUSensorTests {
 
   @Test @MainActor func coreKindsAreKnownBeforeTheFirstRead() {
     let kinds: [CoreKind] = [.efficiency, .performance]
+
     let coordinator = MetricsCoordinator(
       providers: [.cpu: MetricProvider(sensor: CPUSensor(ticks: ScriptedTicks(coreKinds: kinds, reads: [])))])
 

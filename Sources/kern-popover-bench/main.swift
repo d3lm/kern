@@ -56,6 +56,7 @@ final class Bench {
     )
 
     elsewhere.orderFrontRegardless()
+
     guard usesMenu else { return }
 
     NotificationCenter.default.addObserver(
@@ -111,6 +112,7 @@ final class Bench {
 
       guard panel != nil else {
         check(false, "opening \(opening) shows the panel")
+
         continue
       }
 
@@ -208,6 +210,7 @@ final class Bench {
   private func check(_ condition: Bool, _ message: String) {
     if !condition {
       failures += 1
+
       print("FAILED: \(message)")
     }
   }

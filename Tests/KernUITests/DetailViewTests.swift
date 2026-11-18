@@ -35,10 +35,11 @@ final class DetailViewTests {
 
   /// A view outside a window is never drawn, so each view gets an offscreen window.
   func detailView(_ sources: [Metric: MetricSource] = sources) -> DetailView {
-    let view = DetailView(sources: sources, chip: "M1 Max")
+    let view = DetailView(sources: sources, chip: "M1 Max", temperatureUnit: .celsius)
     let window = NSWindow(contentRect: .zero, styleMask: .borderless, backing: .buffered, defer: false)
 
     window.contentView = view
+
     window.setContentSize(view.fittingSize)
     windows.append(window)
     CATransaction.flush()
@@ -62,7 +63,7 @@ final class DetailViewTests {
     #expect(view[.cpu].cores != nil && view[.temperature].sensors != nil)
     #expect(view[.memory].bar != nil && view[.memoryPressure].bar == nil)
 
-    #expect(!view.settingsButton.isEnabled)
+    #expect(view.settingsButton.isEnabled)
     #expect(view.quitButton.isEnabled)
     #expect(view.quitButton.action == #selector(NSApplication.terminate(_:)))
     #expect(view.quitButton.accessibilityLabel() == "Quit Kern")
@@ -81,9 +82,27 @@ final class DetailViewTests {
     #expect(view.quitButton.keyEquivalent == "")
   }
 
+  @Test func settingsShowsAndTakesCommandComma() {
+    let view = detailView()
+
+    var opened = 0
+
+    view.onSettings = { opened += 1 }
+
+    #expect(view.settingsButton.title == "Settings  ⌘,")
+    #expect(view.settingsButton.accessibilityLabel() == "Settings")
+    #expect(view.settingsButton.keyEquivalent == ",")
+    #expect(view.settingsButton.keyEquivalentModifierMask == .command)
+
+    view.settingsButton.performClick(nil)
+
+    #expect(opened == 1)
+  }
+
   @Test func enabledButtonFillsMoreUnderThePointerAndDisabledDoesNot() throws {
     let view = detailView()
     let style = DetailStyle()
+
     let event = try #require(
       NSEvent.enterExitEvent(
         with: .mouseEntered, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
@@ -91,6 +110,8 @@ final class DetailViewTests {
 
     #expect(view.quitButton.trackingAreas.contains { $0.options.contains(.activeAlways) })
     #expect(view.quitButton.fillAlpha == style.cardFillAlpha)
+
+    view.settingsButton.isEnabled = false
 
     for button in [view.quitButton, view.settingsButton] {
       button.mouseEntered(with: event)
@@ -177,6 +198,42 @@ final class DetailViewTests {
     #expect(view[.temperature].value?.statusText == "Unavailable: read failed")
   }
 
+  @Test func temperatureInFahrenheitConvertsTheValueRowsAndSummary() throws {
+    let view = detailView()
+    let samples = [sample(temperature(61.6, coolest: 55)), sample(temperature(88.6, coolest: 75.6), at: .now)]
+
+    view.temperatureUnit = .fahrenheit
+
+    view.show(readings(.temperature, interval: .seconds(10), after: samples), for: .temperature)
+
+    let value = try #require(view[.temperature].value)
+    let row = try #require(view[.temperature].sensors?.rows.first)
+
+    #expect(value.valueText == "191°")
+    #expect(value.accessibilityValue() as? String == "CPU temperature, 191 degrees Fahrenheit")
+    #expect(row.valueText == "191°")
+    #expect(row.accessibilityValue() as? String == "CPU sensors, 168 to 191 degrees Fahrenheit")
+    #expect(abs((row.bar.fill?.upperBound ?? 0) - 0.886) < 1e-9)
+    #expect(row.bar.color.isSame(as: DetailStyle().hot))
+
+    let summary = try #require(view[.temperature].history?.accessibilityLabel())
+
+    #expect(summary.hasSuffix("lowest 143 degrees Fahrenheit, highest 191 degrees Fahrenheit"))
+  }
+
+  @Test func metricTurnedOffSaysSoInsteadOfAValue() throws {
+    let view = detailView()
+
+    view.show(readings(.gpu, after: [sample(value(40), at: .now)], isEnabled: false), for: .gpu)
+
+    let gpu = try #require(view[.gpu].value)
+
+    #expect(gpu.valueText == "—")
+    #expect(gpu.statusText == "Turned off in Settings")
+    #expect(gpu.accessibilityValue() as? String == "GPU activity, unavailable. Turned off in Settings")
+    #expect(view[.gpu].history?.content?.levels.allSatisfy { $0 == nil } == true)
+  }
+
   @Test func voiceOverReadsEachValueWithItsNameUnitAndFreshness() throws {
     let view = detailView()
 
@@ -224,6 +281,7 @@ final class DetailViewTests {
     let texts = value.descendants(of: NSTextField.self).map(\.stringValue)
 
     #expect(texts.contains("hottest CPU sensor"))
+
     #expect(
       view[.cpu].value?.descendants(of: NSTextField.self).map(\.stringValue).contains("hottest CPU sensor") == false)
   }
@@ -305,9 +363,11 @@ final class DetailViewTests {
 
     let gpu = try #require(view.cards.first { $0.heading == "GPU" })
     let before = (size: view.fittingSize, gpuTop: gpu.frame.minY)
+
     var announcements = 0
 
     view.fittingSizeChanged = { announcements += 1 }
+
     view.show(failedFirst, for: .cpu)
     view.show(failedFirst, for: .cpu)
 
@@ -350,7 +410,7 @@ final class DetailViewTests {
 
   @Test func sizeStaysTheSameFromBeforeTheFirstValuesToThem() {
     let cores = CoreUtilization(performance: [40, 55.6], efficiency: [80])
-    let view = DetailView(sources: sources)
+    let view = DetailView(sources: sources, temperatureUnit: .celsius)
     let measuring = sample(.unavailable(.noValue(.awaitingBaseline)), at: .now)
     let temperature = sample(temperature(60, coolest: 50), at: .now)
     let before: NSSize
@@ -366,6 +426,7 @@ final class DetailViewTests {
     view.show(readings(.cpu, after: [measuring, sample(value(60, cores: cores), at: .now)]), for: .cpu)
     view.show(readings(.gpu, after: [measuring, sample(value(9), at: .now)]), for: .gpu)
     view.show(readings(.memory, interval: .seconds(5), after: [sample(usedMemory(71), at: .now)]), for: .memory)
+
     view.show(
       readings(.memoryPressure, interval: .seconds(5), after: [sample(value(40), at: .now)]), for: .memoryPressure)
 
@@ -421,6 +482,7 @@ final class DetailViewTests {
   @Test func valueGoesStaleOnTimeWithoutANewSample() async {
     let view = detailView()
     let store = MetricsStore(intervals: [.gpu: .milliseconds(10)])
+
     var changes = 0
 
     view[.gpu].changed = { changes += 1 }
@@ -452,6 +514,7 @@ struct ChartDrawingTests {
     let window = NSWindow(contentRect: view.bounds, styleMask: .borderless, backing: .buffered, defer: false)
 
     window.appearance = NSAppearance(named: appearance)
+
     window.contentView?.addSubview(view)
 
     return view
@@ -490,7 +553,8 @@ struct ChartDrawingTests {
   @Test func temperatureBarsAreOrangeOnlyAboveEightyDegrees() {
     let chart = inWindow(HistoryChartView(title: "", fill: .temperature, style: style))
 
-    chart.show(HistoryChart(levels: levels([10: 85, 20: 80]), span: .seconds(600), unit: .celsius, isStale: false))
+    chart.show(
+      HistoryChart(levels: levels([10: 85, 20: 80]), span: .seconds(600), unit: .degrees(.celsius), isStale: false))
 
     let image = rendered(chart)
     let hot = image.color(at: NSPoint(x: slotMiddle(10), y: 4))

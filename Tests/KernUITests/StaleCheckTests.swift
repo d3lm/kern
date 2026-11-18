@@ -33,6 +33,7 @@ struct StaleCheckTests {
 
   @Test func checkMarksTheValueStaleOnceWhenItWakes() async {
     var marked = 0
+
     let check = StaleCheck(sleep: sleeps.sleep) { marked += 1 }
 
     check.schedule(at: .now)
@@ -46,6 +47,7 @@ struct StaleCheckTests {
 
   @Test func checkThatWokeBeforeANewDeadlineLeavesTheNewValueCurrent() async {
     var marked = 0
+
     let check = StaleCheck(sleep: sleeps.sleep) { marked += 1 }
     let first = ContinuousClock.now
 
@@ -69,6 +71,7 @@ struct StaleCheckTests {
 
   @Test func noDeadlineCancelsTheCheck() async throws {
     var marked = 0
+
     let check = StaleCheck { marked += 1 }
 
     check.schedule(at: .now + .milliseconds(10))

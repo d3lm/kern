@@ -2,14 +2,15 @@ import Foundation
 
 let usage = """
   Usage: log stream --style ndjson --level debug --predicate 'subsystem == "Kern" && process == "Kern"' \\
-           | swift Scripts/power-report.swift
+           | swift Scripts/schedule-report.swift
 
   Reads Kern's debug log and prints what Kern did at every sleep and wake: how long it was asleep, the samples
-  taken meanwhile, the providers it stopped and started, how soon each metric was sampled after the wake, and how
-  often each metric was sampled after the last wake. Ctrl-C ends the log and prints the report. The exit status
-  is 1 when a check failed.
+  taken meanwhile, the providers it stopped and started, and how soon each metric was sampled after the wake. Then
+  it prints how many schedules each metric has after the last change to the schedules, which is a wake or a change
+  of settings, and how often each metric was sampled since. Ctrl-C ends the log and prints the report. The exit
+  status is 1 when a check failed.
 
-  The process in the predicate is Kern for the app and kern-power-bench for the bench.
+  The process in the predicate is Kern for the app, and kern-power-bench or kern-settings-bench for the benches.
   """
 
 if CommandLine.arguments.count > 1 {
@@ -74,12 +75,14 @@ var samples: [String: [Double]] = [:]
 var starts: [String: [Double]] = [:]
 var stops: [String: [Double]] = [:]
 var intervals: [String: [(since: Double, seconds: Double)]] = [:]
+var lastChange: Double?
 var notes: [String] = []
 var failures = 0
 
 func check(_ condition: Bool, _ message: String) {
   if !condition {
     failures += 1
+
     print("FAILED: \(message)")
   }
 }
@@ -98,12 +101,16 @@ for entry in entries {
   switch (entry.category, words.first) {
   case ("metrics", "suspending"):
     cycles.append(Cycle(sleep: entry.time))
+
+    lastChange = entry.time
   case ("metrics", "resuming"):
     if let last = cycles.indices.last, cycles[last].wake == nil {
       cycles[last].wake = entry.time
     } else {
       check(false, "a wake at \(clock(entry.time)) follows no sleep")
     }
+
+    lastChange = entry.time
   case ("metrics", "started"), ("metrics", "retimed"):
     let metric = String(words[1].dropLast())
 
@@ -114,12 +121,16 @@ for entry in entries {
     if words.count >= 4, words[2] == "every", let interval = Double(words[3]) {
       intervals[metric, default: []].append((entry.time, interval))
     }
+
+    lastChange = entry.time
   case ("metrics", "stopped"):
     stops[String(words[1]), default: []].append(entry.time)
+
+    lastChange = entry.time
+  case ("metrics", "sampled"):
+    samples[String(words[1]), default: []].append(entry.time)
   case ("metrics", _):
     notes.append("\(clock(entry.time))  \(entry.message)")
-  case ("menu bar", _) where entry.message.hasSuffix(" sample arrived"):
-    samples[String(words[0]), default: []].append(entry.time)
   default:
     break
   }
@@ -149,6 +160,7 @@ for (index, cycle) in cycles.enumerated() {
 
   guard let wake = cycle.wake else {
     check(false, "cycle \(number): no wake follows the sleep at \(clock(cycle.sleep))")
+
     continue
   }
 
@@ -157,6 +169,7 @@ for (index, cycle) in cycles.enumerated() {
   let started = metrics.filter { count(starts[$0], from: wake, to: end) > 0 }
   let flying = metrics.map { count(samples[$0], from: cycle.sleep, to: cycle.sleep + inFlight) }.reduce(0, +)
   let asleep = metrics.map { count(samples[$0], from: cycle.sleep + inFlight, to: wake) }.reduce(0, +)
+
   var delays: [String] = []
 
   for metric in started {
@@ -164,6 +177,7 @@ for (index, cycle) in cycles.enumerated() {
 
     guard let firstSample = after.first, let interval = interval(of: metric, at: end) else {
       check(false, "cycle \(number): \(metric) was not sampled after the wake")
+
       continue
     }
 
@@ -171,6 +185,7 @@ for (index, cycle) in cycles.enumerated() {
     let isPair = early.count == 2 && early[1] - early[0] < baselinePair
 
     delays.append(String(format: "%@ %.2f", metric, firstSample - wake))
+
     check(firstSample - wake <= resumeLimit, "cycle \(number): \(metric) was first sampled after \(resumeLimit) s")
     check(early.count == 1 || isPair, "cycle \(number): \(metric) took \(early.count) samples in its first interval")
     check(count(starts[metric], from: wake, to: end) == 1, "cycle \(number): \(metric) started more than once")
@@ -186,23 +201,34 @@ for (index, cycle) in cycles.enumerated() {
       started.count, delays.joined(separator: ", ")))
 }
 
-if let wake = cycles.last?.wake {
-  let window = last.time - wake
+if let change = lastChange, change < last.time {
+  let window = last.time - change
 
   print("")
-  print(String(format: "after the last wake, over %.1f s", window))
+  print(String(format: "after the last change to the schedules, at %@, over %.1f s", clock(change), window))
   print("metric           interval s  samples  expected  live schedules")
 
   for metric in metrics {
-    guard let interval = interval(of: metric, at: last.time) else { continue }
-
-    let taken = count(samples[metric], from: wake, to: last.time + 1)
-    let expected = window / interval
     let live = (starts[metric]?.count ?? 0) - (stops[metric]?.count ?? 0)
+    let taken = count(samples[metric], from: change, to: last.time + 1)
+
+    check(live == 0 || live == 1, "\(metric) has \(live) schedules")
+
+    guard live == 1, let interval = interval(of: metric, at: last.time) else {
+      check(taken == 0, "\(metric) was sampled \(taken) times without a schedule")
+
+      print(
+        String(
+          format: "%@  %10@  %7d  %8d  %14d", metric.padding(toLength: 15, withPad: " ", startingAt: 0), "-", taken, 0,
+          live))
+
+      continue
+    }
+
+    let expected = window / interval
 
     check(Double(taken) <= expected + 2.5, "\(metric) was sampled \(taken) times, more than one schedule takes")
     check(Double(taken) >= expected - 1, "\(metric) was sampled only \(taken) times")
-    check(live == 1, "\(metric) has \(live) schedules")
 
     print(
       String(

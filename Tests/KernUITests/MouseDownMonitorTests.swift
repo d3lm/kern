@@ -27,12 +27,14 @@ extension AppEvents {
       button.target = self
       button.action = #selector(act)
       window.contentView = NSView()
+
       window.contentView?.addSubview(button)
       window.orderFrontRegardless()
     }
 
     @objc func act() {
       actions += 1
+
       button.highlight(true)
     }
 
@@ -71,6 +73,7 @@ extension AppEvents {
 
     @Test func commandClickStillReachesTheButtonSoTheItemCanBeMoved() {
       var handled = 0
+
       let monitor = MouseDownMonitor(on: button) { _ in handled += 1 }
 
       click(at: NSPoint(x: 50, y: 11), modifiers: .command)
@@ -88,10 +91,12 @@ extension AppEvents {
 
       let monitor = MouseDownMonitor(on: button) { _ in
         handled += 1
+
         self.button.highlight(true)
       }
 
       button.frame = NSRect(x: 0, y: 0, width: 100, height: 20)
+
       click(at: point)
 
       #expect(handled == 1)
@@ -103,10 +108,12 @@ extension AppEvents {
 
     @Test func mouseDownInAnotherWindowIsLeftAlone() {
       var handled = 0
+
       let monitor = MouseDownMonitor(on: button) { _ in handled += 1 }
       let other = NSWindow(contentRect: window.frame, styleMask: .borderless, backing: .buffered, defer: false)
 
       other.orderFrontRegardless()
+
       NSApp.sendEvent(
         NSEvent.mouseEvent(
           with: .leftMouseDown, location: NSPoint(x: 50, y: 11), modifierFlags: [], timestamp: 0,
@@ -123,6 +130,7 @@ extension AppEvents {
       var monitor: MouseDownMonitor? = MouseDownMonitor(on: button) { _ in handled += 1 }
 
       monitor = nil
+
       click(at: NSPoint(x: 50, y: 11))
 
       #expect(monitor == nil && handled == 0)

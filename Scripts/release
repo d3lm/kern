@@ -1,0 +1,71 @@
+#!/bin/bash
+
+set -euo pipefail
+
+usage() {
+  echo "usage: Scripts/release [--dry-run] <version>" >&2
+  exit 64
+}
+
+dry_run=false
+
+if [[ "${1:-}" == "--dry-run" ]]; then
+  dry_run=true
+  shift
+fi
+
+[[ $# -eq 1 ]] || usage
+
+version="${1#v}"
+tag="v$version"
+project="App/Kern.xcodeproj/project.pbxproj"
+
+fail() {
+  echo "$1" >&2
+  exit 1
+}
+
+setting() {
+  sed -nE "s/^[[:space:]]*$1 = (.+);$/\\1/p" "$project" | sort -u
+}
+
+cd "$(dirname "$0")/.."
+
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "The version must look like 1.2.3, not $1."
+[[ "$(git symbolic-ref --short HEAD)" == master ]] || fail "Releases are cut from master."
+[[ -z "$(git status --porcelain)" ]] || fail "Commit or stash your changes first."
+
+git fetch --quiet --tags origin master
+
+[[ "$(git rev-list --count HEAD..origin/master)" -eq 0 ]] || fail "master is behind origin/master, so pull first."
+
+if git rev-parse --quiet --verify "refs/tags/$tag" > /dev/null; then
+  fail "The tag $tag already exists."
+fi
+
+build="$(setting CURRENT_PROJECT_VERSION)"
+
+[[ "$build" =~ ^[0-9]+$ ]] || fail "The targets of $project disagree on CURRENT_PROJECT_VERSION."
+
+build=$((build + 1))
+
+if [[ "$dry_run" == true ]]; then
+  echo "Would release $tag as build $build."
+  exit 0
+fi
+
+sed -i '' -E \
+  -e "s/^([[:space:]]*MARKETING_VERSION = ).+;$/\\1$version;/" \
+  -e "s/^([[:space:]]*CURRENT_PROJECT_VERSION = ).+;$/\\1$build;/" \
+  "$project"
+
+if [[ "$(setting MARKETING_VERSION)" != "$version" || "$(setting CURRENT_PROJECT_VERSION)" != "$build" ]]; then
+  git checkout -- "$project"
+  fail "Could not update the versions in $project."
+fi
+
+git commit --quiet -m "chore: release $tag" -- "$project"
+git tag -a "$tag" -m "Kern $version"
+git push --atomic origin master "$tag"
+
+echo "Pushed $tag. The release workflow runs at https://github.com/d3lm/kern/actions/workflows/release.yml"

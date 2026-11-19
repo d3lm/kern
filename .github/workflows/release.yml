@@ -145,14 +145,12 @@ jobs:
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: steps.signing.outputs.enabled == 'true'
         with:
           repository: d3lm/homebrew-tap
           token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           path: homebrew-tap
 
       - name: Update the Homebrew cask
-        if: steps.signing.outputs.enabled == 'true'
         working-directory: homebrew-tap
         env:
           VERSION: ${{ steps.version.outputs.version }}
@@ -167,7 +165,7 @@ jobs:
 
             url "https://github.com/d3lm/kern/releases/download/v#{version}/Kern-#{version}.zip"
             name "Kern"
-            desc "Menu bar monitor for Apple Silicon"
+            desc "A lightweight macOS menu-bar monitor for Apple Silicon."
             homepage "https://github.com/d3lm/kern"
 
             livecheck do

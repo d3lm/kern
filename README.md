@@ -16,11 +16,21 @@ A lightweight macOS menu-bar monitor for Apple Silicon. Kern shows CPU temperatu
   <img src="assets/popover.png" alt="Kern's popover with cards for CPU, GPU, temperature, and memory" width="376">
 </p>
 
+## Install
+
+Kern is available as a Homebrew cask:
+
+```sh
+brew install --cask d3lm/tap/kern
+```
+
+The cask installs the signed and notarized app from the latest GitHub release. Run `brew upgrade --cask kern` to update it, or `brew uninstall --cask kern` to remove it, and add `--zap` to remove its settings as well.
+
 ## Requirements
 
 - A Mac with an M1, M2, M3, M4, or M5 chip
 - macOS 15 or later
-- Xcode 16.3 or later
+- Xcode 16.3 or later to build from source
 
 ## Getting started
 

@@ -129,6 +129,67 @@ final class MenuBarViewTests {
     }
   }
 
+  @Test(arguments: [[Widget.cores, .gpu], [.gpu, .cores, .temperature], [.temperature, .cpu, .cores]])
+  func coresAreAsWideAsTheirBarsWhereverTheyAre(widgets: [Widget]) {
+    let view = menuBarView(MenuBarLayout(widgets: widgets, showsLabels: true)!)
+    let label = style.valueOffset(label: "CPU")
+
+    #expect(style.coresWidth(count: 10) == 63)
+
+    for (cores, width) in [
+      (nil, style.chartWidth),
+      (CoreUtilization(performance: [40, 20, 90, 0, 5, 7, 8, 9], efficiency: [60, 50]), 63),
+      (CoreUtilization(performance: [40], efficiency: [60]), 15),
+    ] as [(CoreUtilization?, CGFloat)] {
+      view.show(readings(.cpu, after: [sample(value(40, cores: cores))]), for: .cpu)
+
+      #expect(view[.cores].frame.width == label + width, "\(width)")
+      #expect(gapsBetweenFrames(view).allSatisfy { $0 == style.widgetSpacing }, "\(width)")
+    }
+  }
+
+  @Test(arguments: [[Widget.storage, .gpu], [.gpu, .storage, .temperature]])
+  func storageIsItsGaugeFollowedByItsPercentageWhereverItIs(widgets: [Widget]) {
+    let view = menuBarView(MenuBarLayout(widgets: widgets, showsLabels: true)!)
+    let gauge = style.valueOffset(label: "SSD") + style.gaugeWidth
+
+    func withText(_ text: String) -> CGFloat {
+      gauge + style.gaugeTextSpacing + style.textWidth(text, in: style.valueFont)
+    }
+
+    for (samples, width) in [
+      ([], gauge), ([sample(failed)], gauge), ([sample(value(5))], withText("5%")),
+      ([sample(value(88.4))], withText("88%")), ([sample(value(100))], withText("100%")),
+    ] as [([MetricSample], CGFloat)] {
+      view.show(readings(.storage, interval: .seconds(10), after: samples), for: .storage)
+
+      #expect(view[.storage].frame.width == width, "\(samples)")
+      #expect(gapsBetweenFrames(view).allSatisfy { $0 == style.widgetSpacing }, "\(samples)")
+    }
+  }
+
+  @Test func storageSampleRedrawsOnlyWhenItsWholePercentChanges() {
+    let view = menuBarView(MenuBarLayout(widgets: [.cpu, .storage], showsLabels: true)!)
+
+    view.show(readings(.storage, after: [sample(value(88.4), at: .now)]), for: .storage)
+    #expect(redraws(of: view) == [.storage])
+
+    view.show(readings(.storage, after: [sample(value(87.6), at: .now)]), for: .storage)
+    #expect(redraws(of: view) == [])
+
+    view.show(readings(.storage, after: [sample(value(87.4), at: .now)]), for: .storage)
+    #expect(redraws(of: view) == [.storage])
+  }
+
+  @Test func cpuSampleRedrawsTheChartAndTheCoresOnceEach() {
+    let view = menuBarView(MenuBarLayout(widgets: [.cpu, .gpu, .cores], showsLabels: true)!)
+    let cores = CoreUtilization(performance: [30], efficiency: [10])
+
+    view.show(readings(.cpu, after: [sample(value(20, cores: cores), at: .now)]), for: .cpu)
+
+    #expect(redraws(of: view) == [.cpu, .cores])
+  }
+
   /// The menu bar keeps the item's trailing edge in place, so the widgets after a reading never move.
   @Test(arguments: [[Widget.temperature, .cpu, .gpu], [.cpu, .temperature, .gpu], [.gpu, .cpu, .temperature]])
   func readingThatChangesWidthMovesOnlyTheWidgetsBeforeIt(widgets: [Widget]) throws {

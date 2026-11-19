@@ -173,7 +173,7 @@ final class MenuBarEditorTests {
     let gpu = try center(of: .gpu)
     let out = NSPoint(x: gpu.x, y: editor.shelf.frame.midY)
 
-    #expect(editor.shelfItems.map(\.widget) == [.kern])
+    #expect(editor.shelfItems.map(\.widget) == [.cores, .storage, .kern])
 
     try drag(from: gpu, through: [NSPoint(x: gpu.x, y: gpu.y + 10), out]) {
       #expect(shownWidgets() == [.temperature, .cpu, .memory])
@@ -182,22 +182,22 @@ final class MenuBarEditorTests {
 
     #expect(layout.widgets == [.temperature, .cpu, .memory])
     #expect(layout.order == MenuBarLayout.standard.order)
-    #expect(editor.shelfItems.map(\.widget) == [.gpu, .kern])
+    #expect(editor.shelfItems.map(\.widget) == [.gpu, .cores, .storage, .kern])
     #expect(editor.emptyShelf.isHidden)
   }
 
-  @Test func kernUsageWaitsOnTheShelfUndimmedAndTheShelfEmptiesOnceItIsInTheBar() throws {
-    let item = try #require(editor.shelfItems.first)
-
-    #expect(item.widget == .kern && item.name.stringValue == "Kern usage")
-    #expect(item.menuBarView.alphaValue == 1 && item.menuBarView.toolTip == nil)
+  @Test func widgetsWithoutASwitchWaitOnTheShelfUndimmedAndTheShelfEmptiesOnceTheyAreInTheBar() throws {
+    #expect(editor.shelfItems.map(\.name.stringValue) == ["CPU cores", "Storage", "Kern usage"])
+    #expect(editor.shelfItems.allSatisfy { $0.menuBarView.alphaValue == 1 && $0.menuBarView.toolTip == nil })
     #expect(editor.emptyShelf.isHidden)
 
-    let memory = editor.frame(of: try #require(editor.barView?.widgetViews.last))
+    for widget in [Widget.storage, .kern, .cores] {
+      let last = editor.frame(of: try #require(editor.barView?.widgetViews.last))
 
-    try drag(from: try center(of: .kern), through: [NSPoint(x: memory.maxX + 4, y: memory.midY)])
+      try drag(from: try center(of: widget), through: [NSPoint(x: last.maxX + 4, y: last.midY)])
+    }
 
-    #expect(layout.widgets == [.temperature, .cpu, .gpu, .memory, .kern])
+    #expect(layout.widgets == [.temperature, .cpu, .gpu, .memory, .storage, .kern, .cores])
     #expect(editor.shelfItems.isEmpty && !editor.emptyShelf.isHidden)
   }
 
@@ -209,7 +209,7 @@ final class MenuBarEditorTests {
     try drag(from: try center(of: .gpu), through: [NSPoint(x: temperature.minX + 1, y: temperature.midY)])
 
     #expect(layout.widgets == [.gpu, .temperature, .cpu, .memory])
-    #expect(editor.shelfItems.map(\.widget) == [.kern])
+    #expect(editor.shelfItems.map(\.widget) == [.cores, .storage, .kern])
   }
 
   @Test func widgetDraggedFromTheShelfAndLetGoOutsideTheBarStaysHidden() throws {
@@ -222,7 +222,7 @@ final class MenuBarEditorTests {
     try drag(from: gpu, through: [NSPoint(x: gpu.x + 40, y: gpu.y)])
 
     #expect(!layout.isShown(.gpu))
-    #expect(editor.shelfItems.map(\.widget) == [.gpu, .kern])
+    #expect(editor.shelfItems.map(\.widget) == [.gpu, .cores, .storage, .kern])
     #expect(editor.shelfItems.first?.alphaValue == 1)
     #expect(changes == 0)
   }
@@ -373,7 +373,7 @@ final class MenuBarEditorTests {
     #expect(
       elements.map { $0.accessibilityLabel() } == [
         "Temperature, in the menu bar, 1 of 3", "CPU, in the menu bar, 2 of 3", "Memory, in the menu bar, 3 of 3",
-        "GPU, available", "Kern usage, available",
+        "GPU, available", "CPU cores, available", "Storage, available", "Kern usage, available",
       ])
 
     #expect(elements.allSatisfy { $0.isAccessibilityElement() && $0.accessibilityRole() == .button })
@@ -419,15 +419,85 @@ final class MenuBarEditorTests {
     #expect(item.menuBarView.toolTip == "Hidden from the menu bar while GPU activity is off")
   }
 
+  /// Takes every widget out of the bar before any reading, then gives each widget its widest reading on a Mac with as
+  /// many cores as the M1 Max, which widens the items on the shelf after it was arranged.
+  @Test func everyWidgetOnTheShelfStaysInsideItsBoxAndTheFormMakesRoomForItsRows() throws {
+    let store = MetricsStore(intervals: Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, .seconds(2)) }))
+    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let cores = CoreUtilization(performance: Array(repeating: 100, count: 8), efficiency: [100, 100])
+
+    defer { pane.stop() }
+
+    preferences.onChange = { pane.show($0) }
+
+    let oneRow = pane.form.size.height
+
+    func check(_ moment: String) {
+      let editor = pane.editor
+      let shelf = editor.shelf.bounds.insetBy(dx: SettingsStyle().inset, dy: 0)
+
+      for item in editor.shelfItems {
+        #expect(shelf.contains(item.frame), "\(moment): \(item.widget) at \(item.frame) in \(shelf)")
+      }
+
+      #expect(editor.shelf.frame.height > MenuBarEditor.shelfHeight, "\(moment)")
+      #expect(editor.bounds.height == editor.shelf.frame.maxY, "\(moment)")
+      #expect(pane.form.sections[0].frame.height == editor.frame.maxY, "\(moment)")
+      #expect(pane.form.size.height == oneRow + editor.shelf.frame.height - MenuBarEditor.shelfHeight, "\(moment)")
+    }
+
+    preferences.update { $0.menuBarLayout = MenuBarLayout(widgets: [], showsLabels: true)! }
+
+    #expect(pane.editor.shelfItems.map(\.widget) == Widget.allCases)
+
+    check("before readings")
+
+    store.record(sample(value(100, cores: cores), at: .now), for: .cpu)
+    store.record(sample(value(103, .celsius), at: .now), for: .temperature)
+    store.record(sample(value(100), at: .now), for: .storage)
+    store.record(sample(usage(250, megabytes: 127), at: .now), for: .kern)
+
+    check("with the widest readings")
+  }
+
+  /// Leaves five widgets on the shelf, which fit in one row until sixteen cores widen the cores widget.
+  @Test func readingThatNeedsAnotherRowOnTheShelfMakesTheFormTaller() throws {
+    let store = MetricsStore(intervals: Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, .seconds(2)) }))
+    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let busy: (Int) -> [Double] = { Array(repeating: 50, count: $0) }
+    let cores = CoreUtilization(performance: busy(12), efficiency: busy(4))
+
+    defer { pane.stop() }
+
+    preferences.onChange = { pane.show($0) }
+
+    let oneRow = pane.form.size.height
+
+    preferences.update { $0.menuBarLayout = MenuBarLayout(widgets: [.gpu, .memory], showsLabels: true)! }
+
+    #expect(pane.editor.shelfItems.map(\.widget) == [.temperature, .cpu, .cores, .storage, .kern])
+    #expect(pane.editor.shelf.frame.height == MenuBarEditor.shelfHeight)
+    #expect(pane.form.size.height == oneRow)
+
+    store.record(sample(value(50, cores: cores), at: .now), for: .cpu)
+
+    let shelf = pane.editor.shelf.bounds.insetBy(dx: SettingsStyle().inset, dy: 0)
+    let added = pane.editor.shelf.frame.height - MenuBarEditor.shelfHeight
+
+    #expect(added > 0)
+    #expect(pane.editor.shelfItems.allSatisfy { shelf.contains($0.frame) })
+    #expect(pane.form.sections[0].frame.height == pane.editor.frame.maxY)
+    #expect(pane.form.size.height == oneRow + added)
+  }
+
   @Test func kernUsageOnTheShelfIsADashOnlyUntilItsFirstReading() throws {
     let store = MetricsStore(intervals: [.kern: .seconds(2)])
     let pane = MenuBarSettings(preferences: preferences, store: store)
 
     defer { pane.stop() }
 
-    let item = try #require(pane.editor.shelfItems.first)
+    let item = try #require(pane.editor.shelfItems.first { $0.widget == .kern })
 
-    #expect(item.widget == .kern)
     #expect(item.menuBarView.widgetViews.first?.content == .noReading)
 
     store.record(sample(usage(3.2, megabytes: 28), at: .now), for: .kern)

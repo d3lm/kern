@@ -46,6 +46,9 @@ final class MenuBarEditor: NSView, SettingsContent {
   private static let dropMargin = NSSize(width: 24, height: 14)
 
   var onLayoutChange: (MenuBarLayout) -> Void = { _ in }
+  /// Asks the owner to arrange the editor again, which a reading or a change of widgets can make it need when the
+  /// shelf's items take another number of rows.
+  var onHeightChange: () -> Void = {}
 
   let bar: SettingsPlate
   let clock = NSTextField(labelWithString: "")
@@ -141,21 +144,47 @@ final class MenuBarEditor: NSView, SettingsContent {
     let shelfTop = bar.frame.maxY + style.sectionSpacing
 
     shelfHeader.setAlignmentOrigin(NSPoint(x: style.inset, y: shelfTop))
-
-    shelf.frame = NSRect(
-      x: 0, y: shelfTop + shelfHeader.alignmentSize.height + style.headerGap, width: width, height: Self.shelfHeight)
+    shelf.setFrameOrigin(NSPoint(x: 0, y: shelfTop + shelfHeader.alignmentSize.height + style.headerGap))
 
     arrangeShelf()
-    setFrameSize(NSSize(width: width, height: shelf.frame.maxY))
   }
 
-  private func arrangeShelf() {
-    var left = style.inset
+  /// Starts a new row of items wherever the next item would pass the box's inset, and makes the shelf one row taller
+  /// for each. Returns whether that changed the editor's height.
+  @discardableResult
+  private func arrangeShelf() -> Bool {
+    let available = style.boxWidth - 2 * style.inset
+
+    var rows: [[ShelfItem]] = []
+    var rowWidth: CGFloat = 0
 
     for item in shelfItems {
-      item.setFrameOrigin(NSPoint(x: left, y: ((Self.shelfHeight - item.frame.height) / 2).rounded()))
+      let widened = rowWidth + Self.shelfSpacing + item.frame.width
 
-      left = item.frame.maxX + Self.shelfSpacing
+      if !rows.isEmpty, widened <= available {
+        rows[rows.count - 1].append(item)
+
+        rowWidth = widened
+      } else {
+        rows.append([item])
+
+        rowWidth = item.frame.width
+      }
+    }
+
+    let rowHeight = shelfItems.map(\.frame.height).max() ?? 0
+    let rowStep = rowHeight + ((Self.shelfHeight - rowHeight) / 2).rounded()
+
+    for (index, row) in rows.enumerated() {
+      var left = style.inset
+
+      for item in row {
+        let top = ((Self.shelfHeight - item.frame.height) / 2).rounded() + CGFloat(index) * rowStep
+
+        item.setFrameOrigin(NSPoint(x: left, y: top))
+
+        left = item.frame.maxX + Self.shelfSpacing
+      }
     }
 
     emptyShelf.isHidden = !shelfItems.isEmpty
@@ -164,6 +193,17 @@ final class MenuBarEditor: NSView, SettingsContent {
       NSPoint(
         x: ((style.boxWidth - emptyShelf.frame.width) / 2).rounded(),
         y: ((Self.shelfHeight - emptyShelf.frame.height) / 2).rounded()))
+
+    shelf.setFrameSize(
+      NSSize(width: style.boxWidth, height: Self.shelfHeight + CGFloat(max(rows.count - 1, 0)) * rowStep))
+
+    let size = NSSize(width: style.boxWidth, height: shelf.frame.maxY)
+
+    guard size != frame.size else { return false }
+
+    setFrameSize(size)
+
+    return true
   }
 
   private func showBar(_ layout: MenuBarLayout, dragged: Widget? = nil) {
@@ -267,7 +307,10 @@ final class MenuBarEditor: NSView, SettingsContent {
       offerCommands(for: item.widget, on: item, label: "\(item.widget.title), available")
     }
 
-    arrangeShelf()
+    if arrangeShelf() {
+      onHeightChange()
+    }
+
     window?.invalidateCursorRects(for: self)
   }
 
@@ -302,8 +345,8 @@ final class MenuBarEditor: NSView, SettingsContent {
       item.menuBarView.show(readings, for: metric)
     }
 
-    if shelfItems.map({ $0.arrange() }).contains(true) {
-      arrangeShelf()
+    if shelfItems.map({ $0.arrange() }).contains(true), arrangeShelf() {
+      onHeightChange()
     }
 
     window?.invalidateCursorRects(for: self)

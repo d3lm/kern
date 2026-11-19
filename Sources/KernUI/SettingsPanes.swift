@@ -303,14 +303,15 @@ final class MenuBarSettings: SettingsPane {
     }
 
     editor.onLayoutChange = { [weak self] layout in self?.preferences.update { $0.menuBarLayout = layout } }
+    editor.onHeightChange = { [weak self] in self?.form.arrange() }
 
     makeForm([
       SettingsSection(
         "Menu Bar",
         info: "Drag a widget to move it, or drag it out of the menu bar to remove it. Drag a widget from Available "
-          + "into the menu bar to add it. A right-click on a widget does the same. Kern usage shows the CPU and "
-          + "memory Kern itself uses, and Kern measures them only while the widget is in the menu bar or this "
-          + "window is open.",
+          + "into the menu bar to add it. A right-click on a widget does the same. CPU cores shows the usage of "
+          + "each core. Storage shows how full the startup disk is, and Kern usage shows the CPU and memory Kern "
+          + "itself uses. Kern measures these two only while their widget is in the menu bar or this window is open.",
         content: editor, style: style),
       SettingsSection(
         "Labels",
@@ -371,8 +372,10 @@ extension Widget {
     switch self {
     case .temperature: "Temperature"
     case .cpu: "CPU"
+    case .cores: "CPU cores"
     case .gpu: "GPU"
     case .memory: "Memory"
+    case .storage: "Storage"
     case .kern: "Kern usage"
     }
   }

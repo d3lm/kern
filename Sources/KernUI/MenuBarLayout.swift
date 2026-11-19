@@ -5,14 +5,17 @@ public enum Widget: String, CaseIterable, Sendable {
   case cpu
   case gpu
   case memory
+  case cores
+  case storage
   case kern
 
   var metric: Metric {
     switch self {
     case .temperature: .temperature
-    case .cpu: .cpu
+    case .cpu, .cores: .cpu
     case .gpu: .gpu
     case .memory: .memoryPressure
+    case .storage: .storage
     case .kern: .kern
     }
   }
@@ -20,9 +23,10 @@ public enum Widget: String, CaseIterable, Sendable {
   var label: String? {
     switch self {
     case .temperature, .kern: nil
-    case .cpu: "CPU"
+    case .cpu, .cores: "CPU"
     case .gpu: "GPU"
     case .memory: "RAM"
+    case .storage: "SSD"
     }
   }
 }

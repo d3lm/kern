@@ -12,7 +12,9 @@ let usage = """
 
   --idle           Wait as long as the openings would take without opening the panel, for comparison.
   --accessibility  Print what VoiceOver can read in the panel, once it has been open for 6 seconds.
-  --menu           Right-click the item and choose Quit Kern in its menu, which must end the process.
+  --menu           Right-click the item, check that its menu is only as wide as its items and opens where a status
+                   item opens its own, and choose Quit Kern in it, which must end the process. Pass
+                   -menuBarLayout with many widgets to check it against an item wider than the menu.
   --pause          Stop at each memory report, and once with the third opening on screen, until the process gets
                    SIGCONT, so that heap, vmmap, footprint, or leaks can examine it.
 
@@ -154,19 +156,50 @@ final class Bench {
   private func chooseQuit(in menu: NSMenu?) {
     guard let menu else { return }
 
-    print("menu: \(menu.items.map(\.title)), item highlighted: \(item.isHighlighted)")
-
-    fflush(stdout)
-
     guard let quit = menu.items.firstIndex(where: { $0.title == "Quit Kern" }) else {
       print("FAILED: the menu has no Quit Kern")
       exit(EXIT_FAILURE)
     }
 
-    DispatchQueue.main.async {
-      menu.cancelTracking()
-      menu.performActionForItem(at: quit)
+    // the menu's window appears a moment after tracking begins, which runs the common modes only, and the timer runs
+    // on the main run loop so the menu stays on the main actor
+    nonisolated(unsafe) let openMenu = menu
+
+    let timer = Timer(timeInterval: 0.3, repeats: false) { [self] _ in
+      MainActor.assumeIsolated {
+        checkPlacement(of: openMenu)
+
+        openMenu.cancelTracking()
+        openMenu.performActionForItem(at: quit)
+      }
     }
+
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  /// Expects the menu where the status item opens its own menu, 4 points left of the item and against the bottom
+  /// of the menu bar, but only as wide as its items, where the status item's own is as wide as the item.
+  private func checkPlacement(of menu: NSMenu) {
+    let itemFrame = item.window!.convertToScreen(item.convert(item.bounds, to: nil))
+
+    guard let frame = NSApp.windows.first(where: { $0.isVisible && $0.className.contains("Menu") })?.frame else {
+      print("FAILED: the menu has no visible window")
+      return
+    }
+
+    // a menu the status item shows reports the item's width as its own size, and a copy that is not shown does not
+    let itemsWidth = (menu.copy() as? NSMenu)?.size.width ?? 0
+
+    print(
+      "menu: \(menu.items.map(\.title)) at \(frame), \(itemsWidth) wide by its items, item at \(itemFrame), "
+        + "item highlighted: \(item.isHighlighted)")
+
+    check(item.isHighlighted, "the item stays highlighted while the menu is open")
+    check(frame.width == itemsWidth, "the menu is as wide as its items")
+    check(frame.minX == itemFrame.minX - 4, "the menu starts 4 points left of the item")
+    check(frame.maxY == itemFrame.minY - 2, "the menu opens against the bottom of the menu bar")
+
+    fflush(stdout)
   }
 
   private func click(

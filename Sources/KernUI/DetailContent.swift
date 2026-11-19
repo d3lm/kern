@@ -224,6 +224,7 @@ extension Metric {
     case .gpu: "GPU"
     case .temperature: "Temperature"
     case .memory, .memoryPressure: "Memory"
+    case .storage: "Storage"
     case .kern: "Kern"
     }
   }
@@ -234,6 +235,7 @@ extension Metric {
       case .cpu, .temperature: "CPU"
       case .gpu: "GPU"
       case .memory, .memoryPressure: "Memory"
+      case .storage: "Storage"
       case .kern: "Kern"
       }
 
@@ -255,7 +257,7 @@ extension Metric {
     switch quantity {
     case .temperature: "hottest CPU sensor"
     case .memoryPressure: "memory pressure"
-    case .utilization, .activeResidency, .memoryUsage, .processUsage: nil
+    case .utilization, .activeResidency, .memoryUsage, .storageUsage, .processUsage: nil
     }
   }
 
@@ -321,7 +323,7 @@ extension Metric {
     case .utilization, .processUsage: "Usage"
     case .activeResidency: "Activity"
     case .temperature: "Temperature"
-    case .memoryUsage: "Used"
+    case .memoryUsage, .storageUsage: "Used"
     case .memoryPressure: "Pressure"
     }
   }

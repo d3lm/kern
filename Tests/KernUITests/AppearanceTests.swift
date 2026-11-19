@@ -14,10 +14,12 @@ struct AppearanceTests {
     acquiredAt: ContinuousClock.Instant = .now,
     gpu: [MetricSample]? = nil,
     celsius: Double = 47,
+    storage: Double = 50,
     kern: SampleState = usage(0.4, megabytes: 18)
   ) -> MenuBarView {
     let view = MenuBarView(layout: MenuBarLayout(widgets: widgets, unlabeled: [])!, temperatureUnit: .celsius)
-    let cpu = (0..<60).map { sample(value(Double($0)), at: acquiredAt) }
+    let cores = CoreUtilization(performance: [90, 70, 50, 30, 20, 10, 5, 0], efficiency: [60, 40])
+    let cpu = (0..<60).map { sample(value(Double($0), cores: cores), at: acquiredAt) }
 
     view.appearance = NSAppearance(named: appearance)
 
@@ -25,6 +27,7 @@ struct AppearanceTests {
     view.show(readings(.cpu, after: cpu), for: .cpu)
     view.show(readings(.gpu, after: gpu ?? [sample(value(88), at: acquiredAt)]), for: .gpu)
     view.show(readings(.memoryPressure, after: [sample(value(64), at: acquiredAt)]), for: .memoryPressure)
+    view.show(readings(.storage, after: [sample(value(storage), at: acquiredAt)]), for: .storage)
     view.show(readings(.kern, after: [sample(kern, at: acquiredAt)]), for: .kern)
 
     return view
@@ -125,19 +128,83 @@ struct AppearanceTests {
     }
   }
 
-  @Test(arguments: [NSAppearance.Name.aqua, .vibrantLight, .darkAqua, .vibrantDark])
-  func chartWithoutValuesShowsOnlyAFaintOutline(appearance: NSAppearance.Name) {
-    let view = MenuBarView(layout: MenuBarLayout(widgets: [.cpu], showsLabels: false)!, temperatureUnit: .celsius)
+  @Test(arguments: [
+    (Widget.cpu, NSAppearance.Name.aqua), (.cpu, .vibrantLight), (.cpu, .darkAqua), (.cpu, .vibrantDark),
+    (.cores, .aqua), (.cores, .vibrantDark),
+  ])
+  func chartWithoutValuesShowsOnlyAFaintOutline(widget: Widget, appearance: NSAppearance.Name) {
+    let view = MenuBarView(layout: MenuBarLayout(widgets: [widget], showsLabels: false)!, temperatureUnit: .celsius)
 
     view.appearance = NSAppearance(named: appearance)
 
     view.show(readings(.cpu, after: [sample(failed)]), for: .cpu)
 
     let image = rendered(view)
-    let inside = view[.cpu].frame.insetBy(dx: 2 * style.outlineWidth, dy: 2 * style.outlineWidth)
+    let inside = view[widget].frame.insetBy(dx: 2 * style.outlineWidth, dy: 2 * style.outlineWidth)
 
-    #expect(image.ink(in: view[.cpu].frame) < 0.6)
+    #expect(view[widget].frame.width == style.chartWidth)
+    #expect(image.ink(in: view[widget].frame) < 0.6)
     #expect(image.ink(in: inside) == 0)
+  }
+
+  /// Checks the bars against the design: 5 points wide and 1 point apart, 1 point inside the outline, and filled
+  /// from the bottom of the 14 points inside it. A core at zero still fills one pixel.
+  @Test func eachCoreIsABarFilledToItsLevelInsideTheOutline() {
+    let view = MenuBarView(layout: MenuBarLayout(widgets: [.cores], showsLabels: false)!, temperatureUnit: .celsius)
+    let levels: [Double] = [50, 100, 0, 50]
+    let cores = CoreUtilization(performance: levels, efficiency: [])
+
+    view.appearance = NSAppearance(named: .vibrantDark)
+
+    view.show(readings(.cpu, after: [sample(value(50, cores: cores), at: .now)]), for: .cpu)
+
+    let inked = inkedPixels(of: view)
+    let scale = Self.inkScale
+    let plot = style.outlineWidth + style.chartPadding
+
+    func isInked(x: CGFloat, height: CGFloat) -> Bool {
+      inked[Int(x * scale)][Int((style.height - height) * scale)]
+    }
+
+    #expect(view[.cores].content == .bars(levels, isStale: false))
+    #expect(view.bounds.width == style.coresWidth(count: 4))
+
+    for (index, level) in levels.enumerated() {
+      let left = plot + CGFloat(index) * (style.coreBarWidth + style.coreBarSpacing)
+      let top = 14 * level / 100
+
+      for x in [left + 0.25, left + style.coreBarWidth / 2, left + style.coreBarWidth - 0.25] {
+        #expect(isInked(x: x, height: plot + 0.1), "bar \(index) at its bottom, x \(x)")
+        #expect(isInked(x: x, height: plot + top - 0.25) == (level > 0), "bar \(index) below its top, x \(x)")
+        #expect(!isInked(x: x, height: plot + top + 0.5), "bar \(index) above its top, x \(x)")
+      }
+
+      if index < levels.count - 1 {
+        #expect(!isInked(x: left + style.coreBarWidth + 0.5, height: plot + 0.1), "gap after bar \(index)")
+      }
+    }
+  }
+
+  /// The percentage is drawn right-aligned in a widget of whole points, as every reading is, so its ink starts
+  /// after the gap by less than a point of rounding plus the side bearing of its first digit.
+  @Test func storagePercentageFollowsItsGaugeAfterAGap() throws {
+    let view = MenuBarView(layout: MenuBarLayout(widgets: [.storage], showsLabels: false)!, temperatureUnit: .celsius)
+
+    view.appearance = NSAppearance(named: .vibrantDark)
+
+    view.show(readings(.storage, after: [sample(value(50), at: .now)]), for: .storage)
+
+    let inked = inkedPixels(of: view).map { $0.contains(true) }
+    let scale = Self.inkScale
+    let columns = inked.indices.filter { inked[$0] }.map { CGFloat($0) / scale }
+    let text = try #require(columns.first { $0 >= style.gaugeWidth })
+
+    #expect(view[.storage].content == .levelReading(.percent(50), isStale: false))
+    #expect(columns.first == 0)
+    #expect(columns.contains(style.gaugeWidth - 1 / scale))
+    #expect(text >= style.gaugeWidth + style.gaugeTextSpacing)
+    #expect(text <= style.gaugeWidth + style.gaugeTextSpacing + 2)
+    #expect((view.bounds.width - 1.5..<view.bounds.width).contains(columns.last!))
   }
 
   @Test func unavailableGaugeShowsADashAndZeroFillsOnlyTheBottom() {
@@ -191,18 +258,19 @@ struct AppearanceTests {
   /// wide, so a gap next to text may be up to 4 points wider than one between a chart and a gauge.
   @Test(arguments: [
     [Widget.temperature, .kern, .cpu, .gpu, .memory], [.kern, .temperature, .cpu, .memory], [.cpu, .temperature, .gpu],
-    [.gpu, .kern, .memory],
+    [.gpu, .kern, .memory], [.storage, .cores, .temperature, .memory], [.cores, .storage, .kern, .gpu],
   ])
   func everyGapBetweenWidgetsLooksTheSameWhateverTheReadings(widgets: [Widget]) {
-    let readings: [(Double, SampleState)] = [
-      (63, usage(3.2, megabytes: 28)), (47, usage(0.4, megabytes: 9)), (103, usage(12, megabytes: 127)),
-      (63, failed),
+    let readings: [(Double, Double, SampleState)] = [
+      (63, 7, usage(3.2, megabytes: 28)), (47, 50, usage(0.4, megabytes: 9)), (103, 100, usage(12, megabytes: 127)),
+      (63, 41, failed),
     ]
 
-    for (celsius, kern) in readings {
-      let gaps = inkGaps(in: menuBarView(.vibrantDark, widgets: widgets, celsius: celsius, kern: kern))
+    for (celsius, storage, kern) in readings {
+      let view = menuBarView(.vibrantDark, widgets: widgets, celsius: celsius, storage: storage, kern: kern)
+      let gaps = inkGaps(in: view)
 
-      #expect(gaps.max()! - gaps.min()! <= 4, "\(celsius)° \(kern): \(gaps)")
+      #expect(gaps.max()! - gaps.min()! <= 4, "\(celsius)° \(storage)% \(kern): \(gaps)")
     }
   }
 }

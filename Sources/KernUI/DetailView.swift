@@ -176,7 +176,7 @@ final class DetailSection {
       case .cpu, .memoryPressure: HistoryChartView(title: title, fill: .gradient(style.cpuGradient), style: style)
       case .gpu: HistoryChartView(title: title, fill: .gradient(style.gpuGradient), style: style)
       case .temperature: HistoryChartView(title: title, fill: .temperature, style: style)
-      case .memory, .kern: nil
+      case .memory, .storage, .kern: nil
       }
 
     cores = metric == .cpu ? CoreChartView(title: title, kinds: source.coreKinds, style: style) : nil

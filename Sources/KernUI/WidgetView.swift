@@ -7,7 +7,8 @@ private let logger = Logger(subsystem: "Kern", category: "menu bar")
 final class WidgetView: NSView {
   let widget: Widget
   let temperatureUnit: TemperatureUnit
-  /// Holds the width the widget needs, which follows the text of a widget that shows text and is fixed otherwise.
+  /// Holds the width the widget needs, which follows the text it shows and the number of its bars, and is fixed
+  /// for a chart or a gauge alone.
   private(set) var contentWidth: CGFloat
   var onContentWidthChange: () -> Void = {}
 
@@ -51,30 +52,38 @@ final class WidgetView: NSView {
   private func render(_ content: WidgetContent) {
     guard content != self.content else { return }
 
-    let lines: [TextLine]? =
+    valueLines =
       switch content {
       case .reading(let text, _): [TextLine(text, font: style.valueFont)]
       case .noReading: [TextLine(WidgetContent.unavailableText, font: style.valueFont)]
       case .stacked(let top, let bottom, _): [top, bottom].map { TextLine($0, font: style.stackedFont) }
-      case .level, .graph: nil
+      case .levelReading(.percent(let percent), _): [TextLine("\(percent)%", font: style.valueFont)]
+      case .level, .levelReading, .graph, .bars: []
       }
 
-    if let lines {
-      let contentWidth = valueOffset + ceil(lines.map(\.width).max() ?? 0)
+    let contentWidth = valueOffset + valueWidth(of: content)
 
-      valueLines = lines
+    if contentWidth != self.contentWidth {
+      self.contentWidth = contentWidth
 
-      if contentWidth != self.contentWidth {
-        self.contentWidth = contentWidth
-
-        onContentWidthChange()
-      }
+      onContentWidthChange()
     }
 
     self.content = content
     needsDisplay = true
 
     logger.debug("redraw \(self.widget.rawValue, privacy: .public): \(content, privacy: .public)")
+  }
+
+  private func valueWidth(of content: WidgetContent) -> CGFloat {
+    let textWidth = ceil(valueLines.map(\.width).max() ?? 0)
+
+    return switch content {
+    case .reading, .noReading, .stacked: textWidth
+    case .levelReading: style.gaugeWidth + (valueLines.isEmpty ? 0 : style.gaugeTextSpacing + textWidth)
+    case .bars(let levels, _): style.coresWidth(count: levels.count)
+    case .level, .graph: style.valueWidth(of: widget)
+    }
   }
 
   override func draw(_ dirtyRect: NSRect) {
@@ -100,8 +109,13 @@ final class WidgetView: NSView {
       drawCentered(valueLines[0], in: value, alpha: valueAlpha, in: context, pixel: pixel)
     case .level(let level, _):
       drawGauge(level, in: value, alpha: valueAlpha, pixel: pixel)
+    case .levelReading(let level, _):
+      drawGauge(level, in: value, alpha: valueAlpha, pixel: pixel)
+      drawLines(valueLines, font: style.valueFont, alignedRightIn: value, alpha: valueAlpha, in: context, pixel: pixel)
     case .graph(let levels, _):
       drawChart(levels, in: value, alpha: valueAlpha, pixel: pixel)
+    case .bars(let levels, _):
+      drawBars(levels, in: value, alpha: valueAlpha, pixel: pixel)
     }
   }
 
@@ -170,7 +184,33 @@ final class WidgetView: NSView {
   }
 
   private func drawChart(_ levels: [Double?], in box: NSRect, alpha: CGFloat, pixel: CGFloat) {
-    let frame = NSRect(x: box.minX, y: box.minY, width: style.chartWidth, height: style.height)
+    let plot = drawOutline(width: style.chartWidth, in: box)
+
+    ink(alpha).setFill()
+    AreaChart.path(levels, smoothing: style.chartSmoothing, in: plot, pixel: pixel).fill()
+  }
+
+  /// Fills each bar from the bottom, and a level of zero still fills one pixel, as the gauge does.
+  private func drawBars(_ levels: [Double], in box: NSRect, alpha: CGFloat, pixel: CGFloat) {
+    let plot = drawOutline(width: style.coresWidth(count: levels.count), in: box)
+
+    ink(alpha).setFill()
+
+    for (index, level) in levels.enumerated() {
+      let height = plot.height * min(max(level, 0), 100) / 100
+
+      NSRect(
+        x: plot.minX + CGFloat(index) * (style.coreBarWidth + style.coreBarSpacing),
+        y: plot.minY,
+        width: style.coreBarWidth,
+        height: max(pixel, aligned(height, to: pixel))
+      ).fill(using: .sourceOver)
+    }
+  }
+
+  /// Returns the area inside the outline that a chart's values may fill.
+  private func drawOutline(width: CGFloat, in box: NSRect) -> NSRect {
+    let frame = NSRect(x: box.minX, y: box.minY, width: width, height: style.height)
     let inset = style.outlineWidth / 2
 
     let outline = NSBezierPath(
@@ -185,10 +225,7 @@ final class WidgetView: NSView {
 
     outline.stroke()
 
-    let plot = frame.insetBy(dx: style.outlineWidth + style.chartPadding, dy: style.outlineWidth + style.chartPadding)
-
-    ink(alpha).setFill()
-    AreaChart.path(levels, smoothing: style.chartSmoothing, in: plot, pixel: pixel).fill()
+    return frame.insetBy(dx: style.outlineWidth + style.chartPadding, dy: style.outlineWidth + style.chartPadding)
   }
 
   private func drawGauge(_ level: WidgetContent.Level, in box: NSRect, alpha: CGFloat, pixel: CGFloat) {

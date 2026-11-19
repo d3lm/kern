@@ -125,12 +125,13 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 20, schedules: 5)
+    await run(until: 20, schedules: 6)
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.kern]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.temperature]!.reads == [0, 10, 20])
+    #expect(logs[.storage]!.reads == [0, 10, 20])
     #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
     #expect(logs[.memory]!.all.isEmpty)
   }
@@ -187,18 +188,18 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 9, schedules: 5)
+    await run(until: 9, schedules: 6)
 
     #expect(logs[.memory]!.all.isEmpty)
 
     coordinator.areDetailsVisible = true
 
-    await run(until: 20, schedules: 6)
+    await run(until: 20, schedules: 7)
 
     coordinator.areDetailsVisible = false
 
     await waitUntil { !logs[.memory]!.isOpen }
-    await run(until: 30, schedules: 5)
+    await run(until: 30, schedules: 6)
 
     #expect(logs[.memory]!.all == ["open", "read 9", "read 14", "read 19", "close"])
   }
@@ -208,23 +209,24 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 5, schedules: 5)
+    await run(until: 5, schedules: 6)
 
     coordinator.areDetailsVisible = true
 
-    await run(until: 13, schedules: 6)
+    await run(until: 13, schedules: 7)
 
     coordinator.areDetailsVisible = false
 
-    await run(until: 20, schedules: 5)
+    await run(until: 20, schedules: 6)
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.kern]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.temperature]!.reads == [0, 10, 20])
+    #expect(logs[.storage]!.reads == [0, 10, 20])
     #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
 
-    for metric in [Metric.cpu, .gpu, .temperature, .memoryPressure, .kern] {
+    for metric in [Metric.cpu, .gpu, .temperature, .memoryPressure, .storage, .kern] {
       #expect(logs[metric]!.all.filter { !$0.hasPrefix("read") } == ["open"], "\(metric)")
     }
   }
@@ -265,9 +267,9 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 10, schedules: 5)
+    await run(until: 10, schedules: 6)
 
-    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2, .memoryPressure: 3, .kern: 6])
+    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2, .memoryPressure: 3, .storage: 2, .kern: 6])
     #expect(coordinator.store[.cpu]?.latest?.value == MetricValue(10, .percent))
     #expect(coordinator.store[.cpu]?.history?.count == 6)
   }
@@ -277,7 +279,7 @@ struct MetricsCoordinatorTests {
 
     let coordinator = coordinator { metric, sensor in
       switch metric {
-      case .cpu, .memory, .memoryPressure, .kern: break
+      case .cpu, .memory, .memoryPressure, .storage, .kern: break
       case .gpu: sensor.failure = readFailure
       case .temperature: sensor.failsToOpen = true
       }
@@ -285,10 +287,11 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 20, schedules: 5)
+    await run(until: 20, schedules: 6)
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.kern]!.reads == Array(stride(from: 0, through: 20, by: 2)))
+    #expect(logs[.storage]!.reads == [0, 10, 20])
     #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
     #expect(logs[.gpu]!.reads == [0, 2, 6, 14])
     #expect(coordinator.store[.gpu]?.latest?.state == .unavailable(.sensorFailed(readFailure)))
@@ -388,19 +391,19 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 4, schedules: 5)
+    await run(until: 4, schedules: 6)
 
     coordinator.disable(.gpu)
 
     await waitUntil { !logs[.gpu]!.isOpen }
-    await run(until: 10, schedules: 4)
+    await run(until: 10, schedules: 5)
 
     #expect(logs[.gpu]!.reads == [0, 2, 4])
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 10, by: 2)))
 
     coordinator.enable(.gpu)
 
-    await run(until: 12, schedules: 5)
+    await run(until: 12, schedules: 6)
 
     #expect(logs[.gpu]!.reads == [0, 2, 4, 10, 12])
     #expect(logs[.gpu]!.all.filter { !$0.hasPrefix("read") } == ["open", "close", "open"])
@@ -469,7 +472,7 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 4, schedules: 5)
+    await run(until: 4, schedules: 6)
 
     coordinator.stop()
 
@@ -478,10 +481,11 @@ struct MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 16, schedules: 5)
+    await run(until: 16, schedules: 6)
 
     #expect(logs[.cpu]!.reads == [0, 2, 4, 14, 16])
     #expect(logs[.temperature]!.reads == [0, 14])
+    #expect(logs[.storage]!.reads == [0, 14])
     #expect(Metric.allCases.allSatisfy { logs[$0]!.isOpen == !$0.isSampledOnlyForDetails })
   }
 

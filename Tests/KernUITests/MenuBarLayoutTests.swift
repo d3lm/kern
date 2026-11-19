@@ -4,20 +4,21 @@ import Testing
 @testable import KernUI
 
 struct MenuBarLayoutTests {
-  @Test func standardLayoutShowsTemperatureCPUGPUAndMemoryWithLabelsAndKernUsageOnlyAsAvailable() {
+  @Test func standardLayoutShowsTemperatureCPUGPUAndMemoryWithLabelsAndTheOtherWidgetsOnlyAsAvailable() {
     #expect(MenuBarLayout.standard.widgets == [.temperature, .cpu, .gpu, .memory])
-    #expect(MenuBarLayout.standard.order == [.temperature, .cpu, .gpu, .memory, .kern])
-    #expect(MenuBarLayout.standard.hidden == [.kern])
+    #expect(MenuBarLayout.standard.order == [.temperature, .cpu, .gpu, .memory, .cores, .storage, .kern])
+    #expect(MenuBarLayout.standard.order == Widget.allCases)
+    #expect(MenuBarLayout.standard.hidden == [.cores, .storage, .kern])
     #expect(MenuBarLayout.standard.unlabeled.isEmpty)
-    #expect(Widget.allCases.map(MenuBarLayout.standard.label) == [nil, "CPU", "GPU", "RAM", nil])
+    #expect(Widget.allCases.map(MenuBarLayout.standard.label) == [nil, "CPU", "GPU", "RAM", "CPU", "SSD", nil])
   }
 
   @Test func widgetsLeftOutAreHiddenAfterTheListedOnes() throws {
     let layout = try #require(MenuBarLayout(widgets: [.gpu, .cpu], showsLabels: false))
 
     #expect(layout.widgets == [.gpu, .cpu])
-    #expect(layout.order == [.gpu, .cpu, .temperature, .memory, .kern])
-    #expect(layout.hidden == [.temperature, .memory, .kern])
+    #expect(layout.order == [.gpu, .cpu, .temperature, .memory, .cores, .storage, .kern])
+    #expect(layout.hidden == [.temperature, .cores, .memory, .storage, .kern])
   }
 
   @Test func layoutWithAWidgetTwiceIsInvalidAndOneWithoutWidgetsShowsNone() {
@@ -50,7 +51,7 @@ struct MenuBarLayoutTests {
 
     layout.place(widget, before: target)
 
-    #expect(layout.order == order + [.kern])
+    #expect(layout.order == order + [.cores, .storage, .kern])
     #expect(layout.widgets == order)
   }
 
@@ -83,7 +84,7 @@ struct MenuBarLayoutTests {
     layout.setShown(false, .gpu)
     layout.place(.gpu, before: nil)
 
-    #expect(layout.order == [.temperature, .cpu, .gpu, .memory, .kern])
+    #expect(layout.order == [.temperature, .cpu, .gpu, .memory, .cores, .storage, .kern])
     #expect(layout.widgets == [.temperature, .cpu, .gpu])
   }
 
@@ -113,7 +114,7 @@ struct MenuBarLayoutTests {
     layout.setShowsLabel(false, .temperature)
 
     #expect(layout.unlabeled == [.gpu])
-    #expect(Widget.allCases.map(layout.label) == [nil, "CPU", nil, "RAM", nil])
+    #expect(Widget.allCases.map(layout.label) == [nil, "CPU", nil, "RAM", "CPU", "SSD", nil])
 
     layout.setShowsLabel(true, .gpu)
 
@@ -152,16 +153,19 @@ struct MenuBarLayoutTests {
     let text = "{ widgets = (memory, gpu, temperature, cpu); hidden = (gpu); showsLabels = YES; }"
     let layout = try #require(MenuBarLayout(propertyList: try propertyList(text)))
 
-    #expect(layout.order == [.memory, .gpu, .temperature, .cpu, .kern])
+    #expect(layout.order == [.memory, .gpu, .temperature, .cpu, .cores, .storage, .kern])
     #expect(layout.widgets == [.memory, .temperature, .cpu])
   }
 
-  @Test func layoutSavedBeforeKernUsageExistedOffersItOnlyAsAvailable() throws {
-    let text = "{ widgets = (cpu, memory, gpu, temperature); hidden = (); unlabeled = (gpu); }"
+  @Test(arguments: [
+    "{ widgets = (cpu, memory, gpu, temperature); hidden = (); unlabeled = (gpu); }",
+    "{ widgets = (cpu, memory, gpu, temperature, kern); hidden = (kern); unlabeled = (gpu); }",
+  ])
+  func layoutSavedBeforeNewerWidgetsExistedOffersThemOnlyAsAvailable(text: String) throws {
     let layout = try #require(MenuBarLayout(propertyList: try propertyList(text)))
 
     #expect(layout.widgets == [.cpu, .memory, .gpu, .temperature])
-    #expect(layout.hidden == [.kern])
+    #expect(layout.hidden == [.cores, .storage, .kern])
     #expect(MenuBarLayout(propertyList: layout.propertyList) == layout)
   }
 

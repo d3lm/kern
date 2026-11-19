@@ -7,14 +7,14 @@ public enum Monitor: String, CaseIterable, Sendable {
   case temperature
   case memory
 
-  /// Returns nil for Kern's own usage, which Settings does not turn on and off.
+  /// Returns nil for storage and Kern's own usage, which Settings does not turn on and off.
   init?(_ metric: Metric) {
     switch metric {
     case .cpu: self = .cpu
     case .gpu: self = .gpu
     case .temperature: self = .temperature
     case .memory, .memoryPressure: self = .memory
-    case .kern: return nil
+    case .storage, .kern: return nil
     }
   }
 

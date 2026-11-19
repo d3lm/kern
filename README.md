@@ -46,7 +46,7 @@ Or open `App/Kern.xcodeproj` in Xcode and run the `Kern` scheme.
 
 Click the menu-bar item for the details of every metric.
 
-By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory pressure, in that order.
+By default the menu bar shows the CPU temperature, a chart of the last two minutes of CPU use, a gauge of GPU activity, and a gauge of memory pressure, in that order. There are more widgets available in Settings.
 
 <p align="center">
   <img src="assets/settings-general.png" alt="The General tab of Kern's Settings, with launch at login, the temperature unit, the Low Power Mode behavior, and Restore Defaults" width="270">
@@ -56,7 +56,7 @@ By default the menu bar shows the CPU temperature, a chart of the last two minut
 
 Kern keeps its settings in the `dev.kern.Kern` defaults domain.
 
-Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU, GPU, and its own usage every 5 seconds, used memory and memory pressure every 10, and temperature every 20, unless an interval is set longer than that or Settings is set to keep the intervals.
+Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU, GPU, and its own usage every 5 seconds, used memory and memory pressure every 10, and temperature and storage every 20, unless an interval is set longer than that or Settings is set to keep the intervals.
 
 A sensor that fails is tried again after one interval, then after two, four, and so on, until the wait would pass a minute. Its readings return at the first retry that works.
 
@@ -94,11 +94,18 @@ chip: M1 Max
 21:59:22  memory.memorystatus_level  memory pressure   70.0 %
 21:59:27  memory.memorystatus_level  memory pressure   66.0 %
 
+$ swift run -c release kern-probe storage # the share of the startup disk in use every 10 seconds until Ctrl-C
+chip: M1 Max
+22:18:14  storage.volume_capacity  storage in use   88.5 %
+22:18:24  storage.volume_capacity  storage in use   88.5 %
+
 $ swift run -c release kern-probe kern # the probe's own CPU use and footprint every 2 seconds until Ctrl-C
 chip: M1 Max
 21:18:48  kern.getrusage_task_info  process usage  unavailable (awaiting baseline)
 21:18:50  kern.getrusage_task_info  process usage    0.0 %  (footprint 2.5 MiB)
 ```
+
+The storage number counts space that macOS can free by purging caches and other purgeable files as free, as macOS does when it says how much space is available, so it can be lower than what `df` reports.
 
 Memory pressure is the share of memory that macOS cannot give to an app without first reclaiming it, and the menu bar's RAM gauge shows it. Once memory is full, used memory stays near the top while pressure keeps moving with how hard macOS is working.
 
@@ -132,7 +139,7 @@ interval cpu 1
 21:48:31  cpu               62.9 %  (user  24.0 %, system  38.9 %)  history 7/60, 1 gap
 ```
 
-While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, `memory`, `memory-pressure`, or `kern`. Used memory is sampled only after `details on`, as the app samples it only while its popover is open, and `details off` stops it again. The probe's own usage is sampled only after `enable kern`, as the app samples its own only while the Kern usage widget is in the menu bar or Settings is open. `sleep` and `wake` suspend and resume sampling as the app does when the Mac sleeps and wakes. `low-power on` and `low-power off` sample as the app does while Low Power Mode is on or off, and `low-power-behavior override` or `low-power-behavior adaptive` sets whether Low Power Mode slows the sampling down. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
+While it runs, type `enable <metric>`, `disable <metric>`, or `interval <metric> <seconds>` to change the schedules, where `<metric>` is `cpu`, `gpu`, `temperature`, `memory`, `memory-pressure`, `storage`, or `kern`. Used memory is sampled only after `details on`, as the app samples it only while its popover is open, and `details off` stops it again. Storage and the probe's own usage are sampled only after `enable storage` and `enable kern`, as the app samples each only while its widget is in the menu bar or Settings is open. `sleep` and `wake` suspend and resume sampling as the app does when the Mac sleeps and wakes. `low-power on` and `low-power off` sample as the app does while Low Power Mode is on or off, and `low-power-behavior override` or `low-power-behavior adaptive` sets whether Low Power Mode slows the sampling down. A sample without a value stays in the history as a gap. When the latest sample has no value, the line also shows the last successful value and whether it is still current or already stale.
 
 To find the temperature sensors of a new chip, list every temperature the SMC reports, one comma-separated row per second, and watch which ones follow a CPU load:
 

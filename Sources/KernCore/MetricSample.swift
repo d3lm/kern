@@ -33,6 +33,9 @@ public enum MetricQuantity: Sendable {
   case temperature
   case memoryUsage
   case memoryPressure
+  /// Is the share of a disk's capacity that is not available for new files, where space macOS would free by
+  /// purging caches counts as available.
+  case storageUsage
   /// Is the CPU use of one process on the scale of Activity Monitor's % CPU, where 100% is one busy logical CPU.
   case processUsage
 }

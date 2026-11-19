@@ -115,6 +115,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
       .temperature: TemperatureSensor(chip: chip),
       .memory: MemorySensor(),
       .memoryPressure: MemoryPressureSensor(),
+      .storage: StorageSensor(),
       .kern: ProcessUsageSensor(),
     ]
 

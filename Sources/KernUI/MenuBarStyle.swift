@@ -12,6 +12,9 @@ struct MenuBarStyle {
   let height: CGFloat = 18
   let chartWidth: CGFloat = 36
   let gaugeWidth: CGFloat = 7
+  let coreBarWidth: CGFloat = 5
+  let coreBarSpacing: CGFloat = 1
+  let gaugeTextSpacing: CGFloat = 5
   let outlineWidth: CGFloat = 1
   let chartPadding: CGFloat = 1
   let chartSmoothing = 2
@@ -33,13 +36,23 @@ struct MenuBarStyle {
   }
 
   /// Returns the width of a widget's value before its first reading. A widget that shows text is as wide as
-  /// the text it shows, which until then is the dash it shows without a reading.
+  /// the text it shows, which until then is the dash it shows without a reading. The storage gauge shows its
+  /// percentage only once it has one, and the cores show the CPU chart's outline until they have their bars.
   func valueWidth(of widget: Widget) -> CGFloat {
     switch widget {
     case .temperature, .kern: textWidth(WidgetContent.unavailableText, in: valueFont)
     case .cpu: chartWidth
-    case .gpu, .memory: gaugeWidth
+    case .cores: coresWidth(count: 0)
+    case .gpu, .memory, .storage: gaugeWidth
     }
+  }
+
+  /// Returns the width of the outline around one bar for each of `count` cores, which without cores
+  /// is the CPU chart's.
+  func coresWidth(count: Int) -> CGFloat {
+    guard count > 0 else { return chartWidth }
+
+    return 2 * (outlineWidth + chartPadding) + CGFloat(count) * coreBarWidth + CGFloat(count - 1) * coreBarSpacing
   }
 
   func valueOffset(label: String?) -> CGFloat {

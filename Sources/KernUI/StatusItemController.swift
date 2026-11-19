@@ -127,20 +127,23 @@ final class StatusItemController: NSObject {
     openSettings()
   }
 
-  /// An item with a menu shows it on every click instead of sending its action, so the menu is attached only while
-  /// it is shown.
   private func click(_ button: NSStatusBarButton, with event: NSEvent) {
     if Self.isMenuClick(event) {
       details.close()
-
-      statusItem.menu = menu
-
-      button.performClick(nil)
-
-      statusItem.menu = nil
+      showMenu(below: button)
     } else {
       details.toggle(from: button)
     }
+  }
+
+  /// A menu the status item shows itself is at least as wide as the item, so the menu pops up from the button
+  /// instead, which keeps it as wide as its items. `popUp` puts the menu's frame 5 points above the point it is
+  /// given, and the offset puts it where the status item would, 4 points left of the button and against the bottom
+  /// of the menu bar. It returns once the menu has closed.
+  private func showMenu(below button: NSStatusBarButton) {
+    button.highlight(true)
+    menu.popUp(positioning: nil, at: NSPoint(x: -4, y: button.bounds.maxY + 7), in: button)
+    button.highlight(false)
   }
 
   static func menu(settingsTarget: AnyObject, settingsAction: Selector) -> NSMenu {

@@ -13,7 +13,7 @@ extension MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 4, schedules: 5)
+    await run(until: 4, schedules: 6)
 
     coordinator.powerState.isAsleep = true
 
@@ -27,7 +27,7 @@ extension MetricsCoordinatorTests {
 
     coordinator.powerState.isAsleep = false
 
-    await run(until: 70, schedules: 5)
+    await run(until: 70, schedules: 6)
 
     #expect(
       logs[.cpu]!.all
@@ -36,6 +36,7 @@ extension MetricsCoordinatorTests {
     #expect(logs[.gpu]!.all == logs[.cpu]!.all)
     #expect(logs[.kern]!.all == logs[.cpu]!.all)
     #expect(logs[.temperature]!.all == ["open", "read 0", "close", "open", "read 64"])
+    #expect(logs[.storage]!.all == logs[.temperature]!.all)
     #expect(logs[.memoryPressure]!.all == ["open", "read 0", "close", "open", "read 64", "read 69"])
     #expect(logs[.memory]!.all.isEmpty)
     #expect(coordinator.store[.temperature]?.latest?.value == MetricValue(64, .percent))
@@ -46,7 +47,7 @@ extension MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 1, schedules: 5)
+    await run(until: 1, schedules: 6)
 
     coordinator.powerState.isAsleep = true
 
@@ -55,12 +56,13 @@ extension MetricsCoordinatorTests {
 
     coordinator.powerState.isAsleep = false
 
-    await run(until: 13, schedules: 5)
+    await run(until: 13, schedules: 6)
 
     #expect(logs[.cpu]!.reads == [0, 3, 5, 7, 9, 11, 13])
     #expect(logs[.gpu]!.reads == [0, 3, 5, 7, 9, 11, 13])
     #expect(logs[.kern]!.reads == [0, 3, 5, 7, 9, 11, 13])
     #expect(logs[.temperature]!.reads == [0, 3, 13])
+    #expect(logs[.storage]!.reads == [0, 3, 13])
     #expect(logs[.memoryPressure]!.reads == [0, 3, 8, 13])
   }
 
@@ -106,7 +108,7 @@ extension MetricsCoordinatorTests {
     coordinator.disable(.gpu)
     coordinator.start()
 
-    await run(until: 3, schedules: 4)
+    await run(until: 3, schedules: 5)
 
     for cycle in 1...10 {
       coordinator.powerState.isAsleep = true
@@ -121,15 +123,15 @@ extension MetricsCoordinatorTests {
         coordinator.powerState.isAsleep = false
       }
 
-      await run(until: clock.seconds + 3, schedules: 4)
+      await run(until: clock.seconds + 3, schedules: 5)
     }
 
     let readsBefore = logs.mapValues(\.reads.count)
     let from = clock.seconds
 
-    await run(until: from + 60, schedules: 4)
+    await run(until: from + 60, schedules: 5)
 
-    for metric in [Metric.cpu, .temperature, .memoryPressure, .kern] {
+    for metric in [Metric.cpu, .temperature, .memoryPressure, .storage, .kern] {
       let reads = logs[metric]!.reads.dropFirst(readsBefore[metric]!)
       let interval = Int(metric.defaultInterval.components.seconds)
 
@@ -141,7 +143,7 @@ extension MetricsCoordinatorTests {
 
     #expect(logs[.gpu]!.all.isEmpty)
     #expect(logs[.memory]!.all.isEmpty)
-    #expect(clock.sleeperCount == 4)
+    #expect(clock.sleeperCount == 5)
   }
 
   @Test func changesMadeDuringSleepTouchNoSensorAndTakeEffectAtWake() async {
@@ -149,7 +151,7 @@ extension MetricsCoordinatorTests {
 
     coordinator.start()
 
-    await run(until: 2, schedules: 5)
+    await run(until: 2, schedules: 6)
 
     coordinator.powerState.isAsleep = true
 
@@ -173,7 +175,7 @@ extension MetricsCoordinatorTests {
 
     coordinator.powerState.isAsleep = false
 
-    await run(until: 23, schedules: 5)
+    await run(until: 23, schedules: 6)
 
     #expect(logs[.cpu]!.reads == [0, 2, 20, 21, 22, 23])
     #expect(logs[.gpu]!.all == eventsAsleep[.gpu])
@@ -240,9 +242,10 @@ extension MetricsCoordinatorTests {
 
     coordinator.powerState.isAsleep = false
 
-    await run(until: 7, schedules: 5)
+    await run(until: 7, schedules: 6)
 
     #expect(logs[.cpu]!.reads == [5, 7])
     #expect(logs[.temperature]!.reads == [5])
+    #expect(logs[.storage]!.reads == [5])
   }
 }

@@ -4,38 +4,43 @@ import KernCore
 let usage = """
   Usage: kern-probe [<mode>]
 
-  Prints the chip identity. With a mode, then prints readings until interrupted.
+  Prints the chip identity. With a mode, it then prints readings until interrupted.
 
   Modes:
-    cpu                  CPU reading every 2 s
-    gpu                  GPU reading every 2 s
-    temperature          CPU temperature every 10 s
-    memory               Share of memory in use every 5 s
-    memory-pressure      Memory pressure every 5 s
-    kern                 This process's own CPU use and memory footprint every 2 s
-    temperature-sensors  Every SMC temperature as comma-separated columns, every 1 s
-                         (for validating sensor maps only)
-    metrics              Every metric through the coordinator, printing a metric's readings
-                         from the store each time it is sampled; also stops when standard
-                         input closes; kern starts disabled, as the app samples it only while
-                         its widget is in the menu bar or Settings is open
+    cpu                  Prints a CPU reading every 2 s.
+    gpu                  Prints a GPU reading every 2 s.
+    temperature          Prints the CPU temperature every 10 s.
+    memory               Prints the share of memory in use every 5 s.
+    memory-pressure      Prints the memory pressure every 5 s.
+    storage              Prints the share of the startup disk in use every 10 s.
+    kern                 Prints this process's own CPU use and memory footprint every 2 s.
+    temperature-sensors  Prints every SMC temperature as comma-separated columns every 1 s.
+                         It exists only for validating sensor maps.
+    metrics              Runs every metric through the coordinator and prints a metric's
+                         readings from the store each time it is sampled. It also stops when
+                         standard input closes. Storage and kern start disabled because the
+                         app samples them only while their widget is in the menu bar or
+                         Settings is open.
 
-  Metrics commands, one per line on standard input:
+  In metrics mode, kern-probe reads these commands from standard input, one per line.
     enable <metric>
     disable <metric>
     interval <metric> <seconds>
-    details on|off       Sample as the app does with its detail popover open or closed
-    sleep                Suspend sampling as the app does when the system announces sleep
-    wake                 Resume sampling as the app does when the system wakes
-    low-power on|off     Sample as the app does while Low Power Mode is on or off
+    details on|off       Samples as the app does with its detail popover open or closed.
+    sleep                Suspends sampling as the app does when the system announces sleep.
+    wake                 Resumes sampling as the app does when the system wakes.
+    low-power on|off     Samples as the app does while Low Power Mode is on or off.
     low-power-behavior adaptive|override
-                         Slow down in Low Power Mode, or keep the configured intervals
+                         Slows down in Low Power Mode, or keeps the configured intervals.
 
-    <metric> is cpu, gpu, temperature, memory, memory-pressure, or kern
+    The <metric> argument is cpu, gpu, temperature, memory, memory-pressure, storage, or kern.
   """
 
 let mode = CommandLine.arguments.dropFirst().first
-let modes = ["cpu", "gpu", "temperature", "memory", "memory-pressure", "kern", "temperature-sensors", "metrics"]
+
+let modes = [
+  "cpu", "gpu", "temperature", "memory", "memory-pressure", "storage", "kern", "temperature-sensors", "metrics",
+]
 
 if let mode, !modes.contains(mode) {
   print(usage)
@@ -65,6 +70,7 @@ case "gpu": await printReadings(of: GPUSensor(), every: .seconds(2))
 case "temperature": await printReadings(of: TemperatureSensor(chip: ChipIdentifier.current), every: .seconds(10))
 case "memory": await printReadings(of: MemorySensor(), every: .seconds(5))
 case "memory-pressure": await printReadings(of: MemoryPressureSensor(), every: .seconds(5))
+case "storage": await printReadings(of: StorageSensor(), every: .seconds(10))
 case "kern": await printReadings(of: ProcessUsageSensor(), every: .seconds(2))
 case "temperature-sensors": await printTemperatureSensors(every: .seconds(1))
 case "metrics": await printMetrics()
@@ -115,9 +121,11 @@ func printMetrics() async {
     .temperature: MetricProvider(sensor: TemperatureSensor(chip: ChipIdentifier.current)),
     .memory: MetricProvider(sensor: MemorySensor()),
     .memoryPressure: MetricProvider(sensor: MemoryPressureSensor()),
+    .storage: MetricProvider(sensor: StorageSensor()),
     .kern: MetricProvider(sensor: ProcessUsageSensor()),
   ])
 
+  coordinator.disable(.storage)
   coordinator.disable(.kern)
 
   let store = coordinator.store
@@ -228,6 +236,7 @@ func describe(_ quantity: MetricQuantity) -> String {
   case .temperature: "temperature"
   case .memoryUsage: "memory in use"
   case .memoryPressure: "memory pressure"
+  case .storageUsage: "storage in use"
   case .processUsage: "process usage"
   }
 }

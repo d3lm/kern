@@ -166,6 +166,60 @@ struct WidgetContentTests {
     #expect(content == .graph((40..<100).map(Double.init), isStale: false))
   }
 
+  @Test func coresAreABarForEachCoreWithThePerformanceCoresFirst() {
+    let cores = CoreUtilization(performance: [80, 61.5, 0], efficiency: [12, 100])
+    let readings = readings(.cpu, after: [sample(value(50.7, cores: cores))])
+
+    #expect(
+      Widget.cores.content(for: readings, at: start, temperatureUnit: .celsius)
+        == .bars([80, 61.5, 0, 12, 100], isStale: false))
+  }
+
+  @Test func coresWithoutPerCoreValuesAreTheOutlineAlone() {
+    let noCores = [
+      [], [sample(.unavailable(.noValue(.awaitingBaseline)))], [sample(failed)], [sample(value(40))],
+    ]
+
+    for samples in noCores {
+      #expect(
+        Widget.cores.content(for: readings(.cpu, after: samples), at: start, temperatureUnit: .celsius)
+          == .bars([], isStale: false))
+    }
+  }
+
+  @Test func failedCPUSampleKeepsTheLastBarsUntilTheyGoStale() {
+    let cores = CoreUtilization(performance: [30], efficiency: [70])
+    let readings = readings(.cpu, after: [sample(value(50, cores: cores)), sample(failed, at: start + .seconds(2))])
+
+    #expect(
+      Widget.cores.content(for: readings, at: start + .seconds(4), temperatureUnit: .celsius)
+        == .bars([30, 70], isStale: false))
+
+    #expect(
+      Widget.cores.content(for: readings, at: start + .seconds(5), temperatureUnit: .celsius)
+        == .bars([30, 70], isStale: true))
+  }
+
+  @Test func storageIsALevelWithItsReadingInWholePercent() {
+    for (percent, level) in [(0.0, 0), (49.5, 50), (88.46, 88), (100.0, 100)] {
+      let readings = readings(.storage, interval: .seconds(10), after: [sample(value(percent))])
+
+      #expect(
+        Widget.storage.content(for: readings, at: start, temperatureUnit: .fahrenheit)
+          == .levelReading(.percent(level), isStale: false))
+    }
+  }
+
+  @Test func storageWithoutAValueIsMeasuringUntilItsFirstSampleAndUnavailableAfterAFailure() {
+    #expect(
+      Widget.storage.content(for: readings(.storage), at: start, temperatureUnit: .celsius)
+        == .levelReading(.measuring, isStale: false))
+
+    #expect(
+      Widget.storage.content(for: readings(.storage, after: [sample(failed)]), at: start, temperatureUnit: .celsius)
+        == .levelReading(.unavailable, isStale: false))
+  }
+
   @Test func kernUsageIsADashUntilTheFirstValue() {
     let noValues = [
       [], [sample(.unavailable(.noValue(.awaitingBaseline)))], [sample(failed)],
@@ -214,16 +268,19 @@ struct WidgetContentTests {
 
   @Test func readingsAtTheirStaleDeadlineChangeOnlyTheStaleness() throws {
     let levels = Array(repeating: nil, count: 59) + [47.0]
+    let cores = CoreUtilization(performance: [47], efficiency: [46])
 
     let contents: [(Widget, MetricUnit, (Bool) -> WidgetContent)] = [
       (.temperature, .celsius, { .reading("47°", isStale: $0) }),
       (.gpu, .percent, { .level(.percent(47), isStale: $0) }),
       (.memory, .percent, { .level(.percent(47), isStale: $0) }),
+      (.storage, .percent, { .levelReading(.percent(47), isStale: $0) }),
       (.cpu, .percent, { .graph(levels, isStale: $0) }),
+      (.cores, .percent, { .bars([47, 46], isStale: $0) }),
     ]
 
     for (widget, unit, content) in contents {
-      let readings = readings(widget.metric, after: [sample(value(47, unit), at: start)])
+      let readings = readings(widget.metric, after: [sample(value(47, unit, cores: cores), at: start)])
       let deadline = try #require(readings.staleAt)
 
       #expect(

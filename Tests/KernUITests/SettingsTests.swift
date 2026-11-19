@@ -956,19 +956,57 @@ final class SettingsTests {
     #expect(general.lowPowerControl.selectedSegment == 0)
   }
 
-  @Test func menuBarEditorEmptiesAWidgetWhoseMetricIsTurnedOffWhileSettingsIsOpen() throws {
-    let editor = try pane(MenuBarSettings.self, in: settingsWindow(PreferencesStore(defaults: TestDefaults().defaults)))
-      .editor
+  @Test func menuBarEditorEmptiesAWidgetWhoseMetricIsTurnedOffWhileSettingsIsOpen() async throws {
+    let settings = settingsWindow(PreferencesStore(defaults: TestDefaults().defaults))
 
+    defer { settings.window.close() }
+
+    settings.tabs.selectedTabViewItemIndex = 2
+
+    let editor = try pane(MenuBarSettings.self, in: settings).editor
     let temperature = { editor.barView?.widgetViews.first { $0.widget == .temperature }?.content }
 
     coordinator.store.record(sample(value(50, .celsius), at: .now), for: .temperature)
 
-    #expect(temperature() == .reading("50°", isStale: false))
+    await waitUntil { temperature() == .reading("50°", isStale: false) }
 
     coordinator.disable(.temperature)
 
+    await waitUntil { temperature() == .noReading }
+  }
+
+  @Test func menuBarEditorObservesTheStoreOnlyWhileItsTabIsSelected() async throws {
+    let settings = settingsWindow(PreferencesStore(defaults: TestDefaults().defaults))
+
+    defer { settings.window.close() }
+
+    let editor = try pane(MenuBarSettings.self, in: settings).editor
+    let temperature = { editor.barView?.widgetViews.first { $0.widget == .temperature }?.content }
+
+    #expect(!editor.isActive)
+
+    coordinator.store.record(sample(value(50, .celsius), at: .now), for: .temperature)
+    try? await Task.sleep(for: .milliseconds(80))
+
     #expect(temperature() == .noReading)
+
+    settings.tabs.selectedTabViewItemIndex = 2
+
+    #expect(editor.isActive)
+    #expect(temperature() == .reading("50°", isStale: false))
+
+    settings.tabs.selectedTabViewItemIndex = 0
+
+    #expect(!editor.isActive)
+
+    coordinator.store.record(sample(value(64, .celsius), at: .now), for: .temperature)
+    try? await Task.sleep(for: .milliseconds(80))
+
+    #expect(temperature() == .reading("50°", isStale: false))
+
+    settings.tabs.selectedTabViewItemIndex = 2
+
+    #expect(temperature() == .reading("64°", isStale: false))
   }
 
   @Test func statusItemFollowsAChangeOfSettingsAtOnce() async throws {

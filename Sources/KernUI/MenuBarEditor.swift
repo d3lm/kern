@@ -58,17 +58,26 @@ final class MenuBarEditor: NSView, SettingsContent {
   private(set) var barView: MenuBarView?
   private(set) var shelfItems: [ShelfItem] = []
   private(set) var preferences = Preferences.standard
+  private(set) var isActive = false
   private let store: MetricsStore
   private let style: SettingsStyle
+  private let batchWindow: Duration
   private var look: Look?
   private var press: Press?
   private var drag: Drag?
+  private var batch: SampleBatch?
   private var observer: MetricsStore.ObserverID?
   private var ticking: Task<Void, Never>?
 
-  init(store: MetricsStore, style: SettingsStyle) {
+  init(
+    store: MetricsStore,
+    style: SettingsStyle,
+    batchWindow: Duration = StatusItemController.batchWindow,
+    isActive: Bool = true
+  ) {
     self.store = store
     self.style = style
+    self.batchWindow = batchWindow
     bar = SettingsPlate(style: style)
     shelf = SettingsPlate(style: style)
     shelfHeader = style.header("Available")
@@ -92,9 +101,11 @@ final class MenuBarEditor: NSView, SettingsContent {
     setAccessibilityRole(.group)
     setAccessibilityLabel("Menu bar widgets")
 
-    observer = store.observe { [weak self] metric in self?.showReadings(of: metric) }
-
-    tick()
+    if isActive {
+      setActive(true)
+    } else {
+      _ = showTime()
+    }
   }
 
   @available(*, unavailable)
@@ -119,14 +130,39 @@ final class MenuBarEditor: NSView, SettingsContent {
     showShelf()
   }
 
+  func setActive(_ isActive: Bool) {
+    guard isActive != self.isActive else { return }
+
+    self.isActive = isActive
+
+    if isActive {
+      let batch = SampleBatch(window: batchWindow) { [weak self] metrics in
+        self?.showReadings(of: metrics)
+      }
+
+      self.batch = batch
+      observer = store.observe { [weak batch] metric in batch?.add(metric) }
+
+      showReadings(of: Set(Metric.allCases))
+      tick()
+    } else {
+      cancelDrag()
+      batch?.cancel()
+
+      batch = nil
+
+      if let observer { store.removeObserver(observer) }
+
+      observer = nil
+
+      ticking?.cancel()
+
+      ticking = nil
+    }
+  }
+
   func stop() {
-    cancelDrag()
-
-    if let observer { store.removeObserver(observer) }
-
-    observer = nil
-
-    ticking?.cancel()
+    setActive(false)
   }
 
   func arrange() {
@@ -218,7 +254,12 @@ final class MenuBarEditor: NSView, SettingsContent {
 
       let view = MenuBarView(layout: layout, temperatureUnit: preferences.temperatureUnit)
 
-      view.onStaleDeadline = { [weak self] metric in self?.showReadings(of: metric) }
+      view.onStaleDeadline = { [weak self] metric in
+        guard self?.isActive == true else { return }
+
+        self?.showReadings(of: [metric])
+      }
+
       view.translatesAutoresizingMaskIntoConstraints = false
 
       bar.addSubview(view)
@@ -336,20 +377,34 @@ final class MenuBarEditor: NSView, SettingsContent {
       })
   }
 
-  private func showReadings(of metric: Metric) {
-    guard let readings = store[metric] else { return }
+  private func showReadings(of metrics: Set<Metric>) {
+    let barWidths = barView?.widgetViews.map(\.contentWidth)
 
-    barView?.show(readings, for: metric)
+    for metric in metrics {
+      guard let readings = store[metric] else { continue }
 
-    for item in shelfItems {
-      item.menuBarView.show(readings, for: metric)
+      barView?.show(readings, for: metric)
+
+      for item in shelfItems where item.widget.metric == metric {
+        item.menuBarView.show(readings, for: metric)
+      }
     }
 
-    if shelfItems.map({ $0.arrange() }).contains(true), arrangeShelf() {
+    let barChanged = barView?.widgetViews.map(\.contentWidth) != barWidths
+
+    var shelfChanged = false
+
+    for item in shelfItems where metrics.contains(item.widget.metric) {
+      if item.arrange() { shelfChanged = true }
+    }
+
+    if shelfChanged, arrangeShelf() {
       onHeightChange()
     }
 
-    window?.invalidateCursorRects(for: self)
+    if barChanged || shelfChanged {
+      window?.invalidateCursorRects(for: self)
+    }
   }
 
   private func showReadings(on view: MenuBarView) {
@@ -362,8 +417,12 @@ final class MenuBarEditor: NSView, SettingsContent {
     var seconds = showTime()
 
     ticking = Task { [weak self] in
-      while !Task.isCancelled {
-        try? await Task.sleep(for: .seconds(60 - seconds), tolerance: .seconds(1))
+      while true {
+        do {
+          try await Task.sleep(for: .seconds(60 - seconds), tolerance: .seconds(1))
+        } catch {
+          return
+        }
 
         guard let next = self?.showTime() else { return }
 
@@ -379,6 +438,7 @@ final class MenuBarEditor: NSView, SettingsContent {
     clock.stringValue = now.formatted(date: .omitted, time: .shortened)
 
     arrange()
+    window?.invalidateCursorRects(for: self)
 
     return Calendar.current.component(.second, from: now)
   }

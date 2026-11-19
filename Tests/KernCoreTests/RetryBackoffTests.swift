@@ -41,10 +41,34 @@ extension MetricsCoordinatorTests {
 
     #expect(logs[.cpu]!.reads == [0, 2, 6, 14, 30, 62, 94, 126, 158, 190])
     #expect(logs[.temperature]!.reads == [0, 10, 30, 70, 110, 150, 190])
-    #expect(logs[.memoryPressure]!.reads == Array(stride(from: 0, through: 200, by: 5)))
+    #expect(logs[.memoryPressure]!.reads == Array(stride(from: 0, through: 198, by: 6)))
     #expect(logs[.cpu]!.opens == 1)
     #expect(coordinator.store[.cpu]?.latest?.state == .unavailable(.sensorFailed(readFailure)))
     #expect(coordinator.store[.cpu]?.history?.count == 10)
+  }
+
+  @Test func sensorFailingOffTheSharedTicksWaitsAFullIntervalBeforeItsRetryJoinsThem() async {
+    let coordinator = coordinator([.cpu, .temperature]) { metric, sensor in
+      sensor.failure = metric == .temperature ? readFailure : nil
+    }
+
+    coordinator.disable(.temperature)
+    coordinator.start()
+
+    await run(until: 5, schedules: 1)
+
+    clock.advance(by: .milliseconds(700))
+
+    coordinator.enable(.temperature)
+
+    await waitUntil { logs[.temperature]!.reads == [5] && clock.sleeperCount == 2 }
+
+    clock.advance(by: .milliseconds(300))
+
+    await run(until: 41, schedules: 2)
+
+    #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 40, by: 2)))
+    #expect(logs[.temperature]!.reads == [5, 20, 40])
   }
 
   @Test func sensorThatWorksAgainGivesReadingsAtTheNextRetryAndThenKeepsItsInterval() async {
@@ -99,15 +123,15 @@ extension MetricsCoordinatorTests {
 
     coordinator.powerState.isLowPowerModeEnabled = true
 
-    await run(until: 94, schedules: 1)
+    await run(until: 95, schedules: 1)
 
-    #expect(logs[.cpu]!.reads == [0, 2, 6, 14, 54, 94])
+    #expect(logs[.cpu]!.reads == [0, 2, 6, 14, 55, 95])
 
     coordinator.powerState.isLowPowerModeEnabled = false
 
     await run(until: 160, schedules: 1)
 
-    #expect(logs[.cpu]!.reads == [0, 2, 6, 14, 54, 94, 126, 158])
+    #expect(logs[.cpu]!.reads == [0, 2, 6, 14, 55, 95, 128, 160])
   }
 
   @Test func sensorThatCannotOpenIsRetriedAfterAChangeOfIntervalToo() async {

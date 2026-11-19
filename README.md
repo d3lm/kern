@@ -56,7 +56,7 @@ By default the menu bar shows the CPU temperature, a chart of the last two minut
 
 Kern keeps its settings in the `dev.kern.Kern` defaults domain.
 
-Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU, GPU, and its own usage every 5 seconds, used memory and memory pressure every 10, and temperature and storage every 20, unless an interval is set longer than that or Settings is set to keep the intervals.
+Kern stops sampling while the Mac sleeps and samples again as soon as it wakes. In Low Power Mode it samples CPU and GPU every 5 seconds, used memory, memory pressure, and its own usage every 10, and temperature and storage every 20, unless an interval is set longer than that or Settings is set to keep the intervals.
 
 A sensor that fails is tried again after one interval, then after two, four, and so on, until the wait would pass a minute. Its readings return at the first retry that works.
 
@@ -85,24 +85,24 @@ chip: M1 Max
 21:48:10  temperature.smc.cpu  temperature   67.1 °C  (cpu 63.7 to 67.1 °C)
 21:48:20  temperature.smc.cpu  temperature   70.7 °C  (cpu 66.7 to 70.7 °C)
 
-$ swift run -c release kern-probe memory # the share of memory in use every 5 seconds until Ctrl-C
+$ swift run -c release kern-probe memory # the share of memory in use every 6 seconds until Ctrl-C
 chip: M1 Max
 21:48:50  memory.host_statistics64  memory in use   86.7 %  (27.76 of 32.00 GiB)
-21:48:55  memory.host_statistics64  memory in use   87.0 %  (27.83 of 32.00 GiB)
-$ swift run -c release kern-probe memory-pressure # the memory pressure every 5 seconds until Ctrl-C
+21:48:56  memory.host_statistics64  memory in use   87.0 %  (27.83 of 32.00 GiB)
+$ swift run -c release kern-probe memory-pressure # the memory pressure every 6 seconds until Ctrl-C
 chip: M1 Max
 21:59:22  memory.memorystatus_level  memory pressure   70.0 %
-21:59:27  memory.memorystatus_level  memory pressure   66.0 %
+21:59:28  memory.memorystatus_level  memory pressure   66.0 %
 
 $ swift run -c release kern-probe storage # the share of the startup disk in use every 10 seconds until Ctrl-C
 chip: M1 Max
 22:18:14  storage.volume_capacity  storage in use   88.5 %
 22:18:24  storage.volume_capacity  storage in use   88.5 %
 
-$ swift run -c release kern-probe kern # the probe's own CPU use and footprint every 2 seconds until Ctrl-C
+$ swift run -c release kern-probe kern # the probe's own CPU use and footprint every 6 seconds until Ctrl-C
 chip: M1 Max
 21:18:48  kern.getrusage_task_info  process usage  unavailable (awaiting baseline)
-21:18:50  kern.getrusage_task_info  process usage    0.0 %  (footprint 2.5 MiB)
+21:18:54  kern.getrusage_task_info  process usage    0.0 %  (footprint 2.5 MiB)
 ```
 
 The storage number counts space that macOS can free by purging caches and other purgeable files as free, as macOS does when it says how much space is available, so it can be lower than what `df` reports.

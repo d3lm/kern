@@ -21,7 +21,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
     panes = [
       GeneralSettings(preferences: preferences, loginItem: loginItem),
       MetricsSettings(preferences: preferences, store: store),
-      MenuBarSettings(preferences: preferences, store: store),
+      MenuBarSettings(preferences: preferences, store: store, isActive: false),
     ]
 
     tabs = SettingsTabs()

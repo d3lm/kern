@@ -113,7 +113,7 @@ final class MenuBarEditorTests {
 
   @Test func temperatureMovedFromTheFrontLandsAsWideAsItsReading() async throws {
     let store = MetricsStore(intervals: [.temperature: .seconds(10)])
-    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
     let editor = pane.editor
 
     defer { pane.stop() }
@@ -397,7 +397,7 @@ final class MenuBarEditorTests {
 
   @Test func widgetOnTheShelfOfAMetricTurnedOffIsDimmedAndShowsNoOldValue() throws {
     let store = MetricsStore(intervals: [.gpu: .seconds(2)])
-    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
 
     defer { pane.stop() }
 
@@ -423,7 +423,7 @@ final class MenuBarEditorTests {
   /// many cores as the M1 Max, which widens the items on the shelf after it was arranged.
   @Test func everyWidgetOnTheShelfStaysInsideItsBoxAndTheFormMakesRoomForItsRows() throws {
     let store = MetricsStore(intervals: Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, .seconds(2)) }))
-    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
     let cores = CoreUtilization(performance: Array(repeating: 100, count: 8), efficiency: [100, 100])
 
     defer { pane.stop() }
@@ -463,7 +463,7 @@ final class MenuBarEditorTests {
   /// Leaves five widgets on the shelf, which fit in one row until sixteen cores widen the cores widget.
   @Test func readingThatNeedsAnotherRowOnTheShelfMakesTheFormTaller() throws {
     let store = MetricsStore(intervals: Dictionary(uniqueKeysWithValues: Metric.allCases.map { ($0, .seconds(2)) }))
-    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
     let busy: (Int) -> [Double] = { Array(repeating: 50, count: $0) }
     let cores = CoreUtilization(performance: busy(12), efficiency: busy(4))
 
@@ -491,8 +491,8 @@ final class MenuBarEditorTests {
   }
 
   @Test func kernUsageOnTheShelfIsADashOnlyUntilItsFirstReading() throws {
-    let store = MetricsStore(intervals: [.kern: .seconds(2)])
-    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let store = MetricsStore(intervals: [.kern: .seconds(6)])
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
 
     defer { pane.stop() }
 
@@ -507,8 +507,8 @@ final class MenuBarEditorTests {
 
   /// Two widths that differ by an odd number of points can be centered on each other only on a display's pixels.
   @Test func widgetOnTheShelfIsCenteredUnderItsNameToThePixel() throws {
-    let store = MetricsStore(intervals: [.kern: .seconds(2), .temperature: .seconds(10)])
-    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let store = MetricsStore(intervals: [.kern: .seconds(6), .temperature: .seconds(10)])
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
 
     defer { pane.stop() }
 
@@ -536,8 +536,8 @@ final class MenuBarEditorTests {
   }
 
   @Test func readingOnTheShelfStaysCenteredUnderItsNameAndKeepsTheShelfSpacingAsItsWidthChanges() throws {
-    let store = MetricsStore(intervals: [.temperature: .seconds(10), .kern: .seconds(2)])
-    let pane = MenuBarSettings(preferences: preferences, store: store)
+    let store = MetricsStore(intervals: [.temperature: .seconds(10), .kern: .seconds(6)])
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
 
     defer { pane.stop() }
 
@@ -597,6 +597,76 @@ final class MenuBarEditorTests {
     #expect(pane.labelSwitches[.memory]?.state == .on)
     #expect(unlabeled.bar < labeled.bar)
     #expect(unlabeled.shelf < labeled.shelf)
+  }
+
+  @Test func readingsWithinTheBatchWindowAreDeliveredTogether() async throws {
+    let store = MetricsStore(intervals: [.temperature: .seconds(10), .gpu: .seconds(2)])
+    let pane = MenuBarSettings(preferences: preferences, store: store)
+
+    defer { pane.stop() }
+
+    let temperature = { pane.editor.barView?.widgetViews.first { $0.widget == .temperature }?.content }
+    let gpu = { pane.editor.barView?.widgetViews.first { $0.widget == .gpu }?.content }
+
+    store.record(sample(value(58, .celsius), at: .now), for: .temperature)
+    store.record(sample(value(42), at: .now), for: .gpu)
+
+    #expect(temperature() == .noReading)
+    #expect(gpu() == .level(.measuring, isStale: false))
+
+    await waitUntil {
+      guard case .reading("58°", _)? = temperature(), case .level(.percent(42), _)? = gpu() else { return false }
+
+      return true
+    }
+  }
+
+  @Test func editorWhoseClockIsWaitingForTheNextMinuteStopsShowingTheTimeOnceInactive() async throws {
+    defer { pane.stop() }
+
+    try await Task.sleep(for: .milliseconds(100))
+
+    pane.setActive(false)
+
+    editor.clock.stringValue = ""
+
+    try await Task.sleep(for: .milliseconds(100))
+
+    #expect(editor.clock.stringValue.isEmpty)
+  }
+
+  @Test func cursorRectsAreInvalidatedOnlyWhenAReadingChangesAWidgetsWidth() throws {
+    let store = MetricsStore(intervals: [.temperature: .seconds(10), .gpu: .seconds(2)])
+    let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
+    let cursorWindow = CursorRectWindow(contentRect: .zero, styleMask: [.titled], backing: .buffered, defer: true)
+
+    defer { pane.stop() }
+
+    cursorWindow.setContentSize(pane.form.size)
+    cursorWindow.contentView?.addSubview(pane.form)
+
+    store.record(sample(value(50, .celsius), at: .now), for: .temperature)
+
+    cursorWindow.invalidations = 0
+
+    store.record(sample(value(51, .celsius), at: .now), for: .temperature)
+    store.record(sample(value(45), at: .now), for: .gpu)
+
+    #expect(cursorWindow.invalidations == 0)
+
+    store.record(sample(value(100, .celsius), at: .now), for: .temperature)
+
+    #expect(cursorWindow.invalidations == 1)
+  }
+}
+
+final class CursorRectWindow: NSWindow {
+  var invalidations = 0
+
+  override func invalidateCursorRects(for view: NSView) {
+    invalidations += 1
+
+    super.invalidateCursorRects(for: view)
   }
 }
 

@@ -38,6 +38,10 @@ final class SettingsTabs: NSTabViewController {
     for (index, button) in buttons {
       button.isSelected = index == selectedTabViewItemIndex
     }
+
+    for (index, item) in tabViewItems.enumerated() {
+      (item.viewController as? SettingsPane)?.setActive(index == selectedTabViewItemIndex)
+    }
   }
 }
 

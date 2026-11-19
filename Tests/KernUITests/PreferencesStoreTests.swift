@@ -12,7 +12,7 @@ struct PreferencesStoreTests {
     PreferencesStore(defaults: defaults.defaults)
   }
 
-  @Test func everySettingStartsAtThePRDDefault() {
+  @Test func everySettingStartsAtItsDefault() {
     let preferences = store().preferences
 
     for monitor in Monitor.allCases {
@@ -22,7 +22,7 @@ struct PreferencesStoreTests {
     #expect(preferences.cpu.interval == 2)
     #expect(preferences.gpu.interval == 2)
     #expect(preferences.temperature.interval == 10)
-    #expect(preferences.memory.interval == 5)
+    #expect(preferences.memory.interval == 6)
     #expect(preferences.graphSamples == 60)
     #expect(preferences.temperatureUnit == .celsius)
     #expect(preferences.lowPowerModeBehavior == .adaptive)

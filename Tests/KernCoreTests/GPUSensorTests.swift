@@ -211,7 +211,7 @@ struct GPUSensorTests {
     #expect(await provider.sample().state == .unavailable(.noValue(.awaitingBaseline)))
   }
 
-  @Test func ioReportReportsAnOffStateAndPerformanceStates() throws {
+  @Test(.enabled(if: onAppleSiliconHardware)) func ioReportReportsAnOffStateAndPerformanceStates() throws {
     var source = IOReportGPUStateResidency()
 
     try source.open()
@@ -224,7 +224,7 @@ struct GPUSensorTests {
     #expect(residency.count > 1)
   }
 
-  @Test func liveSensorGivesAReadingWithinRange() async throws {
+  @Test(.enabled(if: onAppleSiliconHardware)) func liveSensorGivesAReadingWithinRange() async throws {
     var sensor = GPUSensor()
 
     try sensor.open()

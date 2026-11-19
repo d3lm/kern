@@ -11,17 +11,17 @@ public enum Metric: String, CaseIterable, Sendable {
 
   public var defaultInterval: Duration {
     switch self {
-    case .cpu, .gpu, .kern: .seconds(2)
-    case .memory, .memoryPressure: .seconds(5)
+    case .cpu, .gpu: .seconds(2)
+    case .memory, .memoryPressure, .kern: .seconds(6)
     case .temperature, .storage: .seconds(10)
     }
   }
 
   public var lowPowerInterval: Duration {
     switch self {
-    case .cpu, .gpu, .kern: .seconds(5)
+    case .cpu, .gpu: .seconds(5)
+    case .memory, .memoryPressure, .kern: .seconds(10)
     case .temperature, .storage: .seconds(20)
-    case .memory, .memoryPressure: .seconds(10)
     }
   }
 

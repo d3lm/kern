@@ -34,6 +34,9 @@ class SettingsPane: NSViewController {
 
   func show(_ preferences: Preferences) {}
 
+  /// Tells the pane whether it is the tab currently shown in the Settings window.
+  func setActive(_ isActive: Bool) {}
+
   /// Ends what the pane does while the window is open.
   func stop() {}
 }
@@ -287,12 +290,17 @@ final class MenuBarSettings: SettingsPane {
   let editor: MenuBarEditor
   let labelSwitches: [Widget: NSSwitch]
 
-  init(preferences: PreferencesStore, store: MetricsStore) {
+  init(
+    preferences: PreferencesStore,
+    store: MetricsStore,
+    batchWindow: Duration = StatusItemController.batchWindow,
+    isActive: Bool = true
+  ) {
     let style = SettingsStyle()
 
     let labeled = Widget.allCases.filter { $0.label != nil }
 
-    editor = MenuBarEditor(store: store, style: style)
+    editor = MenuBarEditor(store: store, style: style, batchWindow: batchWindow, isActive: isActive)
     labelSwitches = Dictionary(uniqueKeysWithValues: labeled.map { ($0, NSSwitch()) })
 
     super.init("Menu Bar", preferences: preferences)
@@ -334,6 +342,10 @@ final class MenuBarSettings: SettingsPane {
     form.arrange()
   }
 
+  override func setActive(_ isActive: Bool) {
+    editor.setActive(isActive)
+  }
+
   override func stop() {
     editor.stop()
   }
@@ -360,7 +372,7 @@ extension Monitor {
       switch self {
       case .cpu, .gpu: [2, 3, 5, 10, 15, 30, 60]
       case .temperature: [5, 10, 15, 30, 60, 120, 300]
-      case .memory: [2, 5, 10, 15, 30, 60, 120, 300]
+      case .memory: [2, 6, 10, 15, 30, 60, 120, 300]
       }
 
     return choices.filter(intervals.contains)

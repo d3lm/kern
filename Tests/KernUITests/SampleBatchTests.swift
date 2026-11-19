@@ -61,4 +61,26 @@ struct SampleBatchTests {
 
     #expect(deliveries.all == [[.cpu, .gpu], [.gpu]])
   }
+
+  @Test func cancellingPendingBatchDeliversNothing() async throws {
+    let deliveries = Deliveries()
+    let batch = SampleBatch(window: .milliseconds(50)) { deliveries.all.append($0) }
+
+    batch.add(.cpu)
+    batch.cancel()
+
+    try await Task.sleep(for: .milliseconds(80))
+
+    #expect(deliveries.all.isEmpty)
+  }
+
+  @Test func zeroWindowDeliversAtOnce() {
+    let deliveries = Deliveries()
+    let batch = SampleBatch(window: .zero) { deliveries.all.append($0) }
+
+    batch.add(.cpu)
+    batch.add(.gpu)
+
+    #expect(deliveries.all == [[.cpu], [.gpu]])
+  }
 }

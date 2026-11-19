@@ -261,7 +261,7 @@ struct CPUSensorTests {
     #expect(ticks.count == sysconf(_SC_NPROCESSORS_CONF))
   }
 
-  @Test func deviceTreeNamesTheKindOfEveryLogicalCPU() throws {
+  @Test(.enabled(if: onAppleSiliconHardware)) func deviceTreeNamesTheKindOfEveryLogicalCPU() throws {
     func logicalCPUs(_ level: Int) -> Int {
       var count: Int32 = 0
       var size = MemoryLayout<Int32>.size
@@ -302,12 +302,15 @@ struct CPUSensorTests {
       return
     }
 
-    let cores = try #require(reading.cores)
-    let shares = cores.performance + cores.efficiency
-
     #expect(reading.unit == .percent)
     #expect((0...100).contains(reading.value))
-    #expect(shares.count == sysconf(_SC_NPROCESSORS_CONF))
-    #expect(shares.allSatisfy { (0...100).contains($0) })
+
+    if onAppleSiliconHardware {
+      let cores = try #require(reading.cores)
+      let shares = cores.performance + cores.efficiency
+
+      #expect(shares.count == sysconf(_SC_NPROCESSORS_CONF))
+      #expect(shares.allSatisfy { (0...100).contains($0) })
+    }
   }
 }

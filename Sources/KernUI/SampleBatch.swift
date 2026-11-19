@@ -14,16 +14,38 @@ final class SampleBatch {
     self.deliver = deliver
   }
 
+  deinit {
+    delivery?.cancel()
+  }
+
   func add(_ metric: Metric) {
     pending.insert(metric)
 
     guard delivery == nil else { return }
 
+    if window <= .zero {
+      deliverPending()
+      return
+    }
+
     delivery = Task { [weak self, window] in
-      try? await Task.sleep(for: window)
+      do {
+        try await Task.sleep(for: window)
+      } catch {
+        return
+      }
+
+      guard !Task.isCancelled else { return }
 
       self?.deliverPending()
     }
+  }
+
+  func cancel() {
+    delivery?.cancel()
+
+    delivery = nil
+    pending = []
   }
 
   private func deliverPending() {

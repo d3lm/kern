@@ -27,9 +27,6 @@ public enum Monitor: String, CaseIterable, Sendable {
     }
   }
 
-  /// Returns the intervals Settings accepts, in whole seconds. With every metric at its minimum, Kern stays within the
-  /// background CPU and wakeup budgets of PRD §5.1, as PRD §4.6 requires. CPU and GPU every second did not, because
-  /// each of their samples redraws the menu bar on every display.
   public var intervals: ClosedRange<Int> {
     switch self {
     case .cpu, .gpu: 2...60
@@ -74,14 +71,11 @@ public struct Preferences: Equatable, Sendable {
   public var gpu: MonitorSettings
   public var temperature: MonitorSettings
   public var memory: MonitorSettings
-  /// Holds the number of samples in each history, which is how many the menu-bar graph and the popover's charts show.
   public var graphSamples: Int
   public var temperatureUnit: TemperatureUnit
   public var lowPowerModeBehavior: LowPowerModeBehavior
   public var menuBarLayout: MenuBarLayout
 
-  /// Holds the defaults of PRD §4.6, except that memory is sampled in the background too, because the menu bar's RAM
-  /// gauge shows memory pressure. Used memory is still sampled only while the popover is open.
   public static let standard = Preferences(
     cpu: MonitorSettings(isEnabled: true, interval: Monitor.cpu.defaultInterval),
     gpu: MonitorSettings(isEnabled: true, interval: Monitor.gpu.defaultInterval),

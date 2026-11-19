@@ -10,10 +10,10 @@ let usage = """
     cpu                  Prints a CPU reading every 2 s.
     gpu                  Prints a GPU reading every 2 s.
     temperature          Prints the CPU temperature every 10 s.
-    memory               Prints the share of memory in use every 5 s.
-    memory-pressure      Prints the memory pressure every 5 s.
+    memory               Prints the share of memory in use every 6 s.
+    memory-pressure      Prints the memory pressure every 6 s.
     storage              Prints the share of the startup disk in use every 10 s.
-    kern                 Prints this process's own CPU use and memory footprint every 2 s.
+    kern                 Prints this process's own CPU use and memory footprint every 6 s.
     temperature-sensors  Prints every SMC temperature as comma-separated columns every 1 s.
                          It exists only for validating sensor maps.
     metrics              Runs every metric through the coordinator and prints a metric's
@@ -65,13 +65,14 @@ case .unrecognized(nil):
 }
 
 switch mode {
-case "cpu": await printReadings(of: CPUSensor(), every: .seconds(2))
-case "gpu": await printReadings(of: GPUSensor(), every: .seconds(2))
-case "temperature": await printReadings(of: TemperatureSensor(chip: ChipIdentifier.current), every: .seconds(10))
-case "memory": await printReadings(of: MemorySensor(), every: .seconds(5))
-case "memory-pressure": await printReadings(of: MemoryPressureSensor(), every: .seconds(5))
-case "storage": await printReadings(of: StorageSensor(), every: .seconds(10))
-case "kern": await printReadings(of: ProcessUsageSensor(), every: .seconds(2))
+case "cpu": await printReadings(of: CPUSensor(), every: Metric.cpu.defaultInterval)
+case "gpu": await printReadings(of: GPUSensor(), every: Metric.gpu.defaultInterval)
+case "temperature":
+  await printReadings(of: TemperatureSensor(chip: ChipIdentifier.current), every: Metric.temperature.defaultInterval)
+case "memory": await printReadings(of: MemorySensor(), every: Metric.memory.defaultInterval)
+case "memory-pressure": await printReadings(of: MemoryPressureSensor(), every: Metric.memoryPressure.defaultInterval)
+case "storage": await printReadings(of: StorageSensor(), every: Metric.storage.defaultInterval)
+case "kern": await printReadings(of: ProcessUsageSensor(), every: Metric.kern.defaultInterval)
 case "temperature-sensors": await printTemperatureSensors(every: .seconds(1))
 case "metrics": await printMetrics()
 default: break

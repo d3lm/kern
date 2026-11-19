@@ -4,7 +4,7 @@ private let logger = Logger(subsystem: "Kern", category: "metrics")
 
 @MainActor
 public final class MetricsCoordinator<C: Clock<Duration>> {
-  static var baselineSpan: Duration { .milliseconds(250) }
+  nonisolated static var baselineSpan: Duration { .milliseconds(250) }
 
   /// The wait between retries of a failing sensor stops doubling before it would exceed this.
   nonisolated static var maximumRetryDelay: Duration { .seconds(60) }
@@ -20,7 +20,10 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
 
   /// Each change to a metric's schedule hands this to the next, so the next continues where sampling stood.
   private struct Progress {
+    /// Holds the tick the most recent attempt to sample was scheduled for, which a retry waits out its delay from.
     var lastTick: C.Instant?
+    /// Holds the instant the most recent sample was read, which the next tick is planned from.
+    var lastSampled: C.Instant?
     var failures = 0
     /// Holds from a sample that only set a baseline until the value that follows it has been read.
     var awaitsValue = false
@@ -64,6 +67,8 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
 
   private var collectors: [Metric: Collector]
   private let clock: C
+  /// Anchors every metric's tick grid so schedules added or retimed later stay in phase with running ones.
+  private var epoch: C.Instant?
 
   init(providers: [Metric: MetricProvider], clock: C) {
     let collectors = Dictionary(
@@ -100,7 +105,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     collectors[metric]?.isEnabled = true
 
     store.setEnabled(true, for: metric)
-    updateSchedule(of: metric)
+    updateSchedule(of: metric, at: clock.now)
   }
 
   /// Also empties the metric's readings in the store, which records none of its samples until it is enabled again.
@@ -108,7 +113,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     collectors[metric]?.isEnabled = false
 
     store.setEnabled(false, for: metric)
-    updateSchedule(of: metric)
+    updateSchedule(of: metric, at: clock.now)
   }
 
   /// Keeps the most recent samples of each history that fit the new capacity.
@@ -121,7 +126,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
 
     collectors[metric]?.configuredInterval = interval
 
-    updateInterval(of: metric)
+    updateInterval(of: metric, at: clock.now)
   }
 
   public func source(of metric: Metric) -> MetricSource {
@@ -139,12 +144,14 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
   }
 
   private func updateIntervals() {
+    let now = clock.now
+
     for metric in collectors.keys {
-      updateInterval(of: metric)
+      updateInterval(of: metric, at: now)
     }
   }
 
-  private func updateInterval(of metric: Metric) {
+  private func updateInterval(of metric: Metric, at now: C.Instant) {
     let collector = collector(metric)
 
     var interval = collector.configuredInterval
@@ -161,17 +168,19 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
 
     if collector.isScheduled {
       logger.debug("retimed \(metric.rawValue, privacy: .public), every \(interval, privacy: .public)")
-      retime(metric)
+      retime(metric, at: now)
     }
   }
 
   private func updateSchedules() {
+    let now = clock.now
+
     for metric in collectors.keys {
-      updateSchedule(of: metric)
+      updateSchedule(of: metric, at: now)
     }
   }
 
-  private func updateSchedule(of metric: Metric) {
+  private func updateSchedule(of metric: Metric, at now: C.Instant) {
     let collector = collector(metric)
 
     let isWanted =
@@ -183,15 +192,19 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     collectors[metric]?.isScheduled = isWanted
 
     if isWanted {
-      begin(metric)
+      begin(metric, at: now)
     } else {
       end(metric)
+
+      if collectors.values.allSatisfy({ !$0.isScheduled }) {
+        epoch = nil
+      }
     }
   }
 
-  private func begin(_ metric: Metric) {
+  private func begin(_ metric: Metric, at now: C.Instant) {
     let collector = collector(metric)
-    let collect = collecting(metric)
+    let collect = collecting(metric, at: now)
 
     enqueue(metric) { [provider = collector.provider, interval = collector.interval] progress in
       await provider.start()
@@ -202,12 +215,12 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
         logger.debug("started \(metric.rawValue, privacy: .public), every \(interval, privacy: .public)")
       }
 
-      return await collect(Progress(lastTick: progress.lastTick))
+      return await collect(Progress(lastSampled: progress.lastSampled))
     }
   }
 
-  private func retime(_ metric: Metric) {
-    enqueue(metric, collecting(metric))
+  private func retime(_ metric: Metric, at now: C.Instant) {
+    enqueue(metric, collecting(metric, at: now))
   }
 
   private func end(_ metric: Metric) {
@@ -222,9 +235,9 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     }
   }
 
-  /// A reading from before the sleep says nothing about the Mac now, and PRD PERF-02 wants sampling back within
-  /// 5 seconds of the wake, so no schedule may wait out the rest of its interval.
   private func restartTicks() {
+    epoch = nil
+
     for metric in collectors.keys {
       enqueue(metric) { _ in Progress() }
     }
@@ -241,14 +254,18 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     }
   }
 
-  /// Read `requested` here, not in the closure, so metrics changed together share ticks and redraw once.
-  private func collecting(_ metric: Metric) -> @Sendable (Progress) async -> Progress {
+  /// Passes the shared `epoch` captured when scheduling began so metrics added or retimed later snap onto the same
+  /// tick grid and batch into one menu-bar redraw.
+  private func collecting(_ metric: Metric, at requested: C.Instant) -> @Sendable (Progress) async -> Progress {
     let collector = collector(metric)
-    let requested = clock.now
+    let epoch = self.epoch ?? requested
+
+    self.epoch = epoch
 
     return { [provider = collector.provider, interval = collector.interval, store = store, clock = clock] progress in
       await Self.collect(
-        metric, from: provider, every: interval, after: progress, requested: requested, into: store, clock: clock)
+        metric, from: provider, every: interval, after: progress, requested: requested, epoch: epoch, into: store,
+        clock: clock)
     }
   }
 
@@ -258,18 +275,16 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
     every interval: Duration,
     after progress: Progress,
     requested: C.Instant,
+    epoch: C.Instant,
     into store: MetricsStore,
     clock: C
   ) async -> Progress {
     var progress = progress
 
-    var tick =
-      progress.lastTick.map { lastTick in
-        max(lastTick.advanced(by: retryDelay(after: progress.failures, every: interval)), requested)
-      } ?? requested
-
     func take() async -> MetricSample {
       let sample = await provider.sample()
+
+      progress.lastSampled = clock.now
 
       await store.record(sample, for: metric)
 
@@ -292,20 +307,26 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
       return !Task.isCancelled
     }
 
-    func dropMissedTicks() {
-      let now = clock.now
+    /// Returns the first tick on the shared grid at least `baselineSpan` after the sample read at `sampled`, so no rate
+    /// is read over a shorter window than its first value. A value read off the grid is therefore followed within one
+    /// interval plus `baselineSpan`, which keeps the retry after one failed sample inside the margin of
+    /// `MetricReadings.staleAt`. After a failure the tick also waits out the retry delay from the tick that failed.
+    func nextTick(after sampled: C.Instant) -> C.Instant {
+      var earliest = sampled.advanced(by: baselineSpan)
 
-      while tick < now {
-        tick = tick.advanced(by: interval)
+      if progress.failures > 0, let lastTick = progress.lastTick {
+        earliest = max(earliest, lastTick.advanced(by: retryDelay(after: progress.failures, every: interval)))
       }
+
+      return aligned(atOrAfter: earliest, from: epoch, every: interval)
     }
 
     // a change of interval can end the schedule that took a baseline before it has read the value
     if progress.awaitsValue {
       guard await readAwaitedValue() else { return progress }
-
-      dropMissedTicks()
     }
+
+    var tick = progress.lastSampled.map { max(nextTick(after: $0), requested) } ?? requested
 
     while true {
       do {
@@ -320,9 +341,10 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
         await provider.start()
       }
 
+      progress.lastTick = tick
+
       let sample = await take()
 
-      progress.lastTick = tick
       progress.awaitsValue = sample.state == .unavailable(.noValue(.awaitingBaseline))
 
       if Task.isCancelled { return progress }
@@ -331,10 +353,32 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
         guard await readAwaitedValue() else { return progress }
       }
 
-      tick = tick.advanced(by: retryDelay(after: progress.failures, every: interval))
-
-      dropMissedTicks()
+      tick = nextTick(after: clock.now)
     }
+  }
+
+  /// Returns the earliest instant on the `epoch + k * interval` grid that is at or after `instant`.
+  private nonisolated static func aligned(
+    atOrAfter instant: C.Instant,
+    from epoch: C.Instant,
+    every interval: Duration
+  ) -> C.Instant {
+    let elapsed = epoch.duration(to: instant)
+
+    guard elapsed > .zero else { return epoch }
+
+    let attosecondsPerSecond: Int128 = 1_000_000_000_000_000_000
+
+    let elapsedAtto =
+      Int128(elapsed.components.seconds) * attosecondsPerSecond + Int128(elapsed.components.attoseconds)
+
+    let intervalAtto =
+      Int128(interval.components.seconds) * attosecondsPerSecond + Int128(interval.components.attoseconds)
+
+    let steps = (elapsedAtto + intervalAtto - 1) / intervalAtto
+    let (seconds, attoseconds) = (steps * intervalAtto).quotientAndRemainder(dividingBy: attosecondsPerSecond)
+
+    return epoch.advanced(by: Duration(secondsComponent: Int64(seconds), attosecondsComponent: Int64(attoseconds)))
   }
 
   private nonisolated static func failuresInARow(
@@ -364,7 +408,7 @@ public final class MetricsCoordinator<C: Clock<Duration>> {
   }
 
   /// Returns the wait after `failures` failed samples in a row, which is one interval after the first.
-  /// It is  always a whole number of intervals, so retries stay on the ticks the metric shares with others.
+  /// It is always a whole number of intervals, so retries stay on the ticks the metric shares with others.
   nonisolated static func retryDelay(after failures: Int, every interval: Duration) -> Duration {
     var delay = interval
 

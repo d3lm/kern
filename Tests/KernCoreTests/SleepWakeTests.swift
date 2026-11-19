@@ -34,10 +34,10 @@ extension MetricsCoordinatorTests {
         == ["open", "read 0", "read 2", "read 4", "close", "open", "read 64", "read 66", "read 68", "read 70"])
 
     #expect(logs[.gpu]!.all == logs[.cpu]!.all)
-    #expect(logs[.kern]!.all == logs[.cpu]!.all)
+    #expect(logs[.kern]!.all == ["open", "read 0", "close", "open", "read 64", "read 70"])
     #expect(logs[.temperature]!.all == ["open", "read 0", "close", "open", "read 64"])
     #expect(logs[.storage]!.all == logs[.temperature]!.all)
-    #expect(logs[.memoryPressure]!.all == ["open", "read 0", "close", "open", "read 64", "read 69"])
+    #expect(logs[.memoryPressure]!.all == ["open", "read 0", "close", "open", "read 64", "read 70"])
     #expect(logs[.memory]!.all.isEmpty)
     #expect(coordinator.store[.temperature]?.latest?.value == MetricValue(64, .percent))
   }
@@ -60,10 +60,10 @@ extension MetricsCoordinatorTests {
 
     #expect(logs[.cpu]!.reads == [0, 3, 5, 7, 9, 11, 13])
     #expect(logs[.gpu]!.reads == [0, 3, 5, 7, 9, 11, 13])
-    #expect(logs[.kern]!.reads == [0, 3, 5, 7, 9, 11, 13])
+    #expect(logs[.kern]!.reads == [0, 3, 9])
     #expect(logs[.temperature]!.reads == [0, 3, 13])
     #expect(logs[.storage]!.reads == [0, 3, 13])
-    #expect(logs[.memoryPressure]!.reads == [0, 3, 8, 13])
+    #expect(logs[.memoryPressure]!.reads == [0, 3, 9])
   }
 
   @Test func rateReadsItsBaselineAndItsValueAfterWakeAsAtLaunchThenKeepsItsInterval() async {

@@ -129,10 +129,10 @@ struct MetricsCoordinatorTests {
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
-    #expect(logs[.kern]!.reads == Array(stride(from: 0, through: 20, by: 2)))
+    #expect(logs[.kern]!.reads == [0, 6, 12, 18])
     #expect(logs[.temperature]!.reads == [0, 10, 20])
     #expect(logs[.storage]!.reads == [0, 10, 20])
-    #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
+    #expect(logs[.memoryPressure]!.reads == [0, 6, 12, 18])
     #expect(logs[.memory]!.all.isEmpty)
   }
 
@@ -201,7 +201,7 @@ struct MetricsCoordinatorTests {
     await waitUntil { !logs[.memory]!.isOpen }
     await run(until: 30, schedules: 6)
 
-    #expect(logs[.memory]!.all == ["open", "read 9", "read 14", "read 19", "close"])
+    #expect(logs[.memory]!.all == ["open", "read 9", "read 12", "read 18", "close"])
   }
 
   @Test func showingTheDetailsLeavesEveryOtherScheduleAsItIs() async {
@@ -221,10 +221,10 @@ struct MetricsCoordinatorTests {
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
     #expect(logs[.gpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
-    #expect(logs[.kern]!.reads == Array(stride(from: 0, through: 20, by: 2)))
+    #expect(logs[.kern]!.reads == [0, 6, 12, 18])
     #expect(logs[.temperature]!.reads == [0, 10, 20])
     #expect(logs[.storage]!.reads == [0, 10, 20])
-    #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
+    #expect(logs[.memoryPressure]!.reads == [0, 6, 12, 18])
 
     for metric in [Metric.cpu, .gpu, .temperature, .memoryPressure, .storage, .kern] {
       #expect(logs[metric]!.all.filter { !$0.hasPrefix("read") } == ["open"], "\(metric)")
@@ -269,7 +269,7 @@ struct MetricsCoordinatorTests {
 
     await run(until: 10, schedules: 6)
 
-    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2, .memoryPressure: 3, .storage: 2, .kern: 6])
+    #expect(heard == [.cpu: 6, .gpu: 6, .temperature: 2, .memoryPressure: 2, .storage: 2, .kern: 2])
     #expect(coordinator.store[.cpu]?.latest?.value == MetricValue(10, .percent))
     #expect(coordinator.store[.cpu]?.history?.count == 6)
   }
@@ -290,9 +290,9 @@ struct MetricsCoordinatorTests {
     await run(until: 20, schedules: 6)
 
     #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 20, by: 2)))
-    #expect(logs[.kern]!.reads == Array(stride(from: 0, through: 20, by: 2)))
+    #expect(logs[.kern]!.reads == [0, 6, 12, 18])
     #expect(logs[.storage]!.reads == [0, 10, 20])
-    #expect(logs[.memoryPressure]!.reads == [0, 5, 10, 15, 20])
+    #expect(logs[.memoryPressure]!.reads == [0, 6, 12, 18])
     #expect(logs[.gpu]!.reads == [0, 2, 6, 14])
     #expect(coordinator.store[.gpu]?.latest?.state == .unavailable(.sensorFailed(readFailure)))
     #expect(coordinator.store[.gpu]?.history?.count == 4)
@@ -462,9 +462,96 @@ struct MetricsCoordinatorTests {
 
     await run(until: 15, schedules: 1)
 
-    #expect(logs[.cpu]!.reads == [0, 2, 7, 12, 13, 14, 15])
+    #expect(logs[.cpu]!.reads == [0, 2, 5, 10, 13, 14, 15])
     #expect(logs[.cpu]!.all.filter { !$0.hasPrefix("read") } == ["open"])
     #expect(coordinator.store[.cpu]?.interval == .seconds(1))
+  }
+
+  @Test func metricEnabledMidIntervalTakesItsFirstSampleAtOnceAndThenAlignsWithRunningMetrics() async {
+    let coordinator = coordinator([.cpu, .kern, .storage])
+
+    coordinator.disable(.kern)
+    coordinator.disable(.storage)
+    coordinator.start()
+
+    await run(until: 5, schedules: 1)
+
+    clock.advance(by: .milliseconds(370))
+
+    coordinator.enable(.kern)
+    coordinator.enable(.storage)
+
+    await waitUntil { logs[.kern]!.reads == [5] && logs[.storage]!.reads == [5] && clock.sleeperCount == 3 }
+
+    clock.advance(by: .milliseconds(630))
+
+    await waitUntil { logs[.cpu]!.reads.last == 6 && clock.sleeperCount == 3 }
+    await run(until: 30, schedules: 3)
+
+    #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 30, by: 2)))
+    #expect(logs[.kern]!.reads == [5, 6, 12, 18, 24, 30])
+    #expect(logs[.storage]!.reads == [5, 10, 20, 30])
+  }
+
+  @Test func retimedMetricAlignsItsNextTicksWithTheSharedGrid() async {
+    let coordinator = coordinator([.cpu, .gpu])
+
+    coordinator.start()
+
+    await run(until: 3, schedules: 2)
+
+    coordinator.setInterval(.seconds(4), for: .gpu)
+
+    await run(until: 16, schedules: 2)
+
+    #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 16, by: 2)))
+    #expect(logs[.gpu]!.reads == [0, 2, 4, 8, 12, 16])
+  }
+
+  @Test func rateEnabledJustBeforeASharedTickWaitsForTheNextOneAfterItsValue() async {
+    let coordinator = coordinator([.cpu, .kern]) { metric, sensor in
+      sensor.baselineReads = metric == .kern ? 1 : 0
+    }
+
+    coordinator.disable(.kern)
+    coordinator.start()
+
+    await run(until: 5, schedules: 1)
+
+    clock.advance(by: .milliseconds(700))
+
+    coordinator.enable(.kern)
+
+    await waitUntil { logs[.kern]!.reads == [5] && clock.sleeperCount == 2 }
+
+    clock.advance(by: MetricsCoordinator<TestClock>.baselineSpan)
+
+    await waitUntil { logs[.kern]!.reads == [5, 5] && clock.sleeperCount == 2 }
+    await run(until: 18, schedules: 2)
+
+    #expect(logs[.kern]!.reads == [5, 5, 12, 18])
+  }
+
+  @Test func metricEnabledAgainSoonAfterEveryScheduleEndedIsNotHeldBackPastItsInterval() async {
+    let coordinator = coordinator([.cpu])
+
+    coordinator.start()
+
+    await run(until: 4, schedules: 1)
+
+    clock.advance(by: .milliseconds(500))
+
+    coordinator.disable(.cpu)
+
+    await waitUntil { !logs[.cpu]!.isOpen }
+
+    clock.advance(by: .milliseconds(500))
+
+    coordinator.enable(.cpu)
+
+    await run(until: 9, schedules: 1)
+
+    #expect(logs[.cpu]!.reads == [0, 2, 4, 5, 7, 9])
   }
 
   @Test func stopClosesEveryProviderAndStartResumesWithoutABurst() async {

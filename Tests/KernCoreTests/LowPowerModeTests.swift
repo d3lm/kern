@@ -10,7 +10,7 @@ extension MetricsCoordinatorTests {
     #expect(Metric.memory.lowPowerInterval == .seconds(10))
     #expect(Metric.memoryPressure.lowPowerInterval == .seconds(10))
     #expect(Metric.storage.lowPowerInterval == .seconds(20))
-    #expect(Metric.kern.lowPowerInterval == .seconds(5))
+    #expect(Metric.kern.lowPowerInterval == .seconds(10))
   }
 
   @Test func lowPowerModeSlowsEveryMetricAndTurningItOffRestoresThemWithoutARestart() async {
@@ -26,7 +26,7 @@ extension MetricsCoordinatorTests {
 
     #expect(coordinator.store[.cpu]?.interval == .seconds(5))
     #expect(coordinator.store[.gpu]?.interval == .seconds(5))
-    #expect(coordinator.store[.kern]?.interval == .seconds(5))
+    #expect(coordinator.store[.kern]?.interval == .seconds(10))
     #expect(coordinator.store[.temperature]?.interval == .seconds(20))
     #expect(coordinator.store[.storage]?.interval == .seconds(20))
     #expect(coordinator.store[.memoryPressure]?.interval == .seconds(10))
@@ -34,30 +34,31 @@ extension MetricsCoordinatorTests {
 
     await run(until: 41, schedules: 7)
 
-    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 11, 16, 21, 26, 31, 36, 41])
-    #expect(logs[.gpu]!.reads == [0, 2, 4, 6, 11, 16, 21, 26, 31, 36, 41])
-    #expect(logs[.kern]!.reads == logs[.cpu]!.reads)
+    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 10, 15, 20, 25, 30, 35, 40])
+    #expect(logs[.gpu]!.reads == logs[.cpu]!.reads)
+    #expect(logs[.kern]!.reads == [0, 6, 10, 20, 30, 40])
     #expect(logs[.temperature]!.reads == [0, 20, 40])
     #expect(logs[.storage]!.reads == logs[.temperature]!.reads)
-    #expect(logs[.memoryPressure]!.reads == [0, 5, 15, 25, 35])
-    #expect(logs[.memory]!.reads == [0, 5, 15, 25, 35])
+    #expect(logs[.memoryPressure]!.reads == [0, 6, 10, 20, 30, 40])
+    #expect(logs[.memory]!.reads == [0, 6, 10, 20, 30, 40])
 
     coordinator.powerState.isLowPowerModeEnabled = false
 
     #expect(coordinator.store[.cpu]?.interval == .seconds(2))
     #expect(coordinator.store[.temperature]?.interval == .seconds(10))
-    #expect(coordinator.store[.memoryPressure]?.interval == .seconds(5))
-    #expect(coordinator.store[.memory]?.interval == .seconds(5))
+    #expect(coordinator.store[.memoryPressure]?.interval == .seconds(6))
+    #expect(coordinator.store[.memory]?.interval == .seconds(6))
+    #expect(coordinator.store[.kern]?.interval == .seconds(6))
 
     await run(until: 51, schedules: 7)
 
-    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 11, 16, 21, 26, 31, 36, 41, 43, 45, 47, 49, 51])
+    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 10, 15, 20, 25, 30, 35, 40, 42, 44, 46, 48, 50])
     #expect(logs[.gpu]!.reads == logs[.cpu]!.reads)
-    #expect(logs[.kern]!.reads == logs[.cpu]!.reads)
+    #expect(logs[.kern]!.reads == [0, 6, 10, 20, 30, 40, 42, 48])
     #expect(logs[.temperature]!.reads == [0, 20, 40, 50])
     #expect(logs[.storage]!.reads == logs[.temperature]!.reads)
-    #expect(logs[.memoryPressure]!.reads == [0, 5, 15, 25, 35, 41, 46, 51])
-    #expect(logs[.memory]!.reads == [0, 5, 15, 25, 35, 41, 46, 51])
+    #expect(logs[.memoryPressure]!.reads == [0, 6, 10, 20, 30, 40, 42, 48])
+    #expect(logs[.memory]!.reads == [0, 6, 10, 20, 30, 40, 42, 48])
 
     for metric in Metric.allCases {
       #expect(logs[metric]!.all.filter { !$0.hasPrefix("read") } == ["open"], "\(metric)")
@@ -88,7 +89,7 @@ extension MetricsCoordinatorTests {
 
     await run(until: 71, schedules: 3)
 
-    #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 56, by: 8)) + [61, 66, 71])
+    #expect(logs[.cpu]!.reads == Array(stride(from: 0, through: 56, by: 8)) + [60, 65, 70])
 
     coordinator.powerState.isLowPowerModeEnabled = false
 
@@ -115,15 +116,15 @@ extension MetricsCoordinatorTests {
 
     await run(until: 16, schedules: 2)
 
-    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 11, 16])
+    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 10, 15])
     #expect(coordinator.store[.temperature]?.interval == .seconds(20))
 
     coordinator.lowPowerModeBehavior = .override
 
     await run(until: 20, schedules: 2)
 
-    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 11, 16, 18, 20])
-    #expect(logs[.temperature]!.reads == [0, 16])
+    #expect(logs[.cpu]!.reads == [0, 2, 4, 6, 10, 15, 16, 18, 20])
+    #expect(logs[.temperature]!.reads == [0, 16, 20])
     #expect(logs[.cpu]!.opens == 1)
   }
 
@@ -150,7 +151,7 @@ extension MetricsCoordinatorTests {
     #expect(standard[.cpu] == 300)
     #expect(standard[.gpu] == 300)
     #expect(standard[.temperature] == 60)
-    #expect(standard[.memoryPressure] == 120)
+    #expect(standard[.memoryPressure] == 100)
     #expect(reduced[.cpu] == 120)
     #expect(reduced[.gpu] == 120)
     #expect(reduced[.temperature] == 30)

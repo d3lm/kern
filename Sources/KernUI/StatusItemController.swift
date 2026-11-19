@@ -8,7 +8,7 @@ private let logger = Logger(subsystem: "Kern", category: "menu bar")
 final class StatusItemController: NSObject {
   private static let padding: CGFloat = 8
   /// Must outlast the spread of about 15 ms between the samples of one tick, so that a tick is drawn in one pass.
-  private static let batchWindow = Duration.milliseconds(50)
+  static let batchWindow = Duration.milliseconds(50)
 
   private let store: MetricsStore
   let statusItem: NSStatusItem

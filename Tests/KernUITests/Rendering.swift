@@ -20,11 +20,36 @@ func waitUntil(
   }
 }
 
+/// Draws at `scale` pixels per point whatever the display's scale, because checks sample rectangles half a point high,
+/// which hold no pixel on a display at 1x such as a CI runner's.
+@MainActor
+func rendered(_ view: NSView, scale: CGFloat = 2) -> NSBitmapImageRep {
+  let bitmap = emptyBitmap(size: view.bounds.size, scale: scale)
+
+  view.cacheDisplay(in: view.bounds, to: bitmap)
+
+  return bitmap
+}
+
 func rendered(_ image: NSImage, scale: CGFloat = 2) -> NSBitmapImageRep {
+  let bitmap = emptyBitmap(size: image.size, scale: scale)
+
+  NSGraphicsContext.saveGraphicsState()
+
+  NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
+
+  image.draw(in: NSRect(origin: .zero, size: image.size))
+
+  NSGraphicsContext.restoreGraphicsState()
+
+  return bitmap
+}
+
+private func emptyBitmap(size: NSSize, scale: CGFloat) -> NSBitmapImageRep {
   let bitmap = NSBitmapImageRep(
     bitmapDataPlanes: nil,
-    pixelsWide: Int(image.size.width * scale),
-    pixelsHigh: Int(image.size.height * scale),
+    pixelsWide: Int(size.width * scale),
+    pixelsHigh: Int(size.height * scale),
     bitsPerSample: 8,
     samplesPerPixel: 4,
     hasAlpha: true,
@@ -34,15 +59,7 @@ func rendered(_ image: NSImage, scale: CGFloat = 2) -> NSBitmapImageRep {
     bitsPerPixel: 0
   )!
 
-  bitmap.size = image.size
-
-  NSGraphicsContext.saveGraphicsState()
-
-  NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: bitmap)
-
-  image.draw(in: NSRect(origin: .zero, size: image.size))
-
-  NSGraphicsContext.restoreGraphicsState()
+  bitmap.size = size
 
   return bitmap
 }

@@ -623,15 +623,6 @@ struct LevelBarTests {
   }
 }
 
-@MainActor
-func rendered(_ view: NSView) -> NSBitmapImageRep {
-  let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-
-  view.cacheDisplay(in: view.bounds, to: bitmap)
-
-  return bitmap
-}
-
 extension NSBitmapImageRep {
   func color(at point: NSPoint) -> NSColor {
     pixels(in: NSRect(x: point.x - 0.25, y: point.y - 0.25, width: 0.5, height: 0.5))[0].usingColorSpace(.sRGB)!

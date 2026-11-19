@@ -86,6 +86,8 @@ final class MenuBarEditorTests {
 
     defer { window.orderOut(nil) }
 
+    editor.reducesMotion = { false }
+
     let cpu = try center(of: .cpu)
     let end = NSPoint(x: try center(of: .memory).x + 8, y: cpu.y)
     let gpuBefore = editor.frame(of: try #require(editor.barView?.widgetViews.first { $0.widget == .gpu }))
@@ -111,6 +113,29 @@ final class MenuBarEditorTests {
     #expect(placed.alphaValue == 1)
   }
 
+  @Test func widgetsMoveAtOnceWithReduceMotion() throws {
+    window.setFrameOrigin(NSPoint(x: -20_000, y: -20_000))
+    window.orderFront(nil)
+
+    defer { window.orderOut(nil) }
+
+    editor.reducesMotion = { true }
+
+    let cpu = try center(of: .cpu)
+    let end = NSPoint(x: try center(of: .memory).x + 8, y: cpu.y)
+    let gpuBefore = editor.frame(of: try #require(editor.barView?.widgetViews.first { $0.widget == .gpu }))
+
+    try drag(from: cpu, through: [NSPoint(x: cpu.x + 4, y: cpu.y), end]) {
+      let gpu = try #require(editor.barView?.widgetViews.first { $0.widget == .gpu })
+
+      #expect(editor.frame(of: gpu).minX < gpuBefore.minX)
+    }
+
+    #expect(editor.barView?.widgetViews.last?.widget == .cpu)
+    #expect(editor.barView?.widgetViews.allSatisfy { $0.alphaValue == 1 } == true)
+    #expect(!editor.subviews.contains { $0 is NSImageView })
+  }
+
   @Test func temperatureMovedFromTheFrontLandsAsWideAsItsReading() async throws {
     let store = MetricsStore(intervals: [.temperature: .seconds(10)])
     let pane = MenuBarSettings(preferences: preferences, store: store, batchWindow: .zero)
@@ -118,6 +143,7 @@ final class MenuBarEditorTests {
 
     defer { pane.stop() }
 
+    editor.reducesMotion = { false }
     preferences.onChange = { pane.show($0) }
 
     store.record(sample(value(50, .celsius), at: .now), for: .temperature)

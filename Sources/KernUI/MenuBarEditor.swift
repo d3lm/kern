@@ -45,6 +45,8 @@ final class MenuBarEditor: NSView, SettingsContent {
   private static let slideDuration: TimeInterval = 0.2
   private static let dropMargin = NSSize(width: 24, height: 14)
 
+  /// Tells whether to leave out the slides, as the user asks with Reduce Motion in System Settings.
+  var reducesMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
   var onLayoutChange: (MenuBarLayout) -> Void = { _ in }
   /// Asks the owner to arrange the editor again, which a reading or a change of widgets can make it need when the
   /// shelf's items take another number of rows.
@@ -302,7 +304,7 @@ final class MenuBarEditor: NSView, SettingsContent {
   }
 
   private var animates: Bool {
-    window?.isVisible == true && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    window?.isVisible == true && !reducesMotion()
   }
 
   private func slide(_ views: [WidgetView], from before: [Widget: NSRect]) {

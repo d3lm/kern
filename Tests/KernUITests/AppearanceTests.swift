@@ -38,14 +38,7 @@ struct AppearanceTests {
   /// Returns, at four pixels per point, whether each pixel has ink, by column from the left and then by row from the
   /// top.
   func inkedPixels(of view: NSView) -> [[Bool]] {
-    let bitmap = NSBitmapImageRep(
-      bitmapDataPlanes: nil, pixelsWide: Int(view.bounds.width * Self.inkScale),
-      pixelsHigh: Int(view.bounds.height * Self.inkScale), bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true,
-      isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)!
-
-    bitmap.size = view.bounds.size
-
-    view.cacheDisplay(in: view.bounds, to: bitmap)
+    let bitmap = rendered(view, scale: Self.inkScale)
 
     return (0..<bitmap.pixelsWide).map { x in
       (0..<bitmap.pixelsHigh).map { y in (bitmap.colorAt(x: x, y: y)?.alphaComponent ?? 0) > 0.25 }
@@ -63,14 +56,6 @@ struct AppearanceTests {
 
       return CGFloat(rightStart - leftEnd - 1) / scale
     }
-  }
-
-  func rendered(_ view: NSView) -> NSBitmapImageRep {
-    let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
-
-    view.cacheDisplay(in: view.bounds, to: bitmap)
-
-    return bitmap
   }
 
   func valueFrame(of widget: Widget, in view: MenuBarView) -> NSRect {

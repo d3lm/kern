@@ -94,7 +94,7 @@ jobs:
             -project App/Kern.xcodeproj \
             -scheme Kern \
             -configuration Release \
-            -destination generic/platform=macOS \
+            -destination platform=macOS,arch=arm64 \
             -derivedDataPath .build/xcode \
             "${signing[@]}"
 

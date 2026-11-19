@@ -33,7 +33,9 @@ final class SlidingSegmentedControl: NSControl {
 
     segmentWidths = fields.map { $0.alignmentSize.width.rounded(.up) + 2 * Self.padding }
 
-    super.init(frame: NSRect(x: 0, y: 0, width: segmentWidths.reduce(0, +) + 2 * Self.inset, height: Self.height))
+    super.init(frame: .zero)
+
+    setFrameSize(NSSize(width: segmentWidths.reduce(0, +) + 2 * Self.inset, height: Self.height))
 
     wantsLayer = true
 
